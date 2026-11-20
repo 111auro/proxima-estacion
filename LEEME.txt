@@ -1,0 +1,26 @@
+PRÓXIMA ESTACIÓN — versión instalable (PWA)
+
+Contenido
+  index.html             el juego
+  manifest.webmanifest   nombre, icono, pantalla completa y orientación apaisada
+  sw.js                  permite abrirlo sin conexión
+  icons/                 iconos de la app
+  .nojekyll              archivo vacío para GitHub Pages (no borrar)
+
+Publicar en GitHub Pages
+  1. Crea un repositorio público en github.com (por ejemplo: proxima-estacion).
+  2. Sube TODO el contenido de esta carpeta a la raíz del repositorio
+     (index.html debe quedar en la raíz, no dentro de una subcarpeta).
+  3. En el repositorio: Settings > Pages > Source: "Deploy from a branch",
+     rama main, carpeta / (root). Guarda.
+  4. Espera uno o dos minutos. La dirección será
+     https://TU-USUARIO.github.io/proxima-estacion/
+
+Instalar en el dispositivo
+  Android (Chrome): abre la dirección > menú de tres puntos >
+     "Instalar app" o "Agregar a pantalla principal".
+  iPhone / iPad (Safari): abre la dirección > botón Compartir >
+     "Agregar a inicio".
+
+Actualizar el juego
+  Reemplaza index.html y cambia en sw.js 'proxima-estacion-v1' por v2, v3...
