@@ -170,7 +170,7 @@ function reachCells(p,prev){
 }
 function canCommand(p){
   return p&&pieces.indexOf(p)>=0&&!busy(p)&&!(phase==='abierto'&&isExiter(p))&&
-    (phase==='tramo'||phase==='aprox'||phase==='abierto');
+    (phase==='tramo'||phase==='aprox'||phase==='abierto'||phase==='resultado');
 }
 function deny(x,y,p){marks.push({x:x,y:y,t:0});if(p)p.shake=0.18;vib(25);beep(220,0.08);}
 function startAnim(p,path){
@@ -361,7 +361,7 @@ function closeDoors(early){
   starsTotal+=stars;
   res={stars:stars,missed:missed,left:left,bonus:bonus,clear:clear,
        exited:exited,exitTotal:exitTotal,boarded:boarded,boardTotal:boardTotal};
-  phase='resultado';pt=0;drag=null;sel=null;beep(520,0.25);
+  phase='resultado';pt=0;beep(520,0.25);   // el anuncio no pausa: se puede seguir moviendo gente
 }
 
 function update(dt){
@@ -435,7 +435,7 @@ cv.addEventListener('pointerdown',function(e){
     if(phase==='inicio'||pt>0.8)start();
     return;
   }
-  if(phase!=='tramo'&&phase!=='aprox'&&phase!=='abierto')return;
+  if(phase!=='tramo'&&phase!=='aprox'&&phase!=='abierto'&&phase!=='resultado')return;
   var c=toCell(e),cx=Math.floor(c[0]),cy=Math.floor(c[1]),p=null;
   var sc=(c[1]<0&&c[1]>=-0.7)?0:((c[1]>=ROWS&&c[1]<ROWS+0.7)?1:-1);
   // quien recibe la orden: el seleccionado, o el que otro dedo está sosteniendo
