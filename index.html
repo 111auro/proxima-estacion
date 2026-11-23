@@ -36,14 +36,45 @@ var ST=[
  {n:'Niquía',side:-1,t:25,b:[1,1,1,2,2,3,99,99,99,99],packs:0,bags:0,
   hint:'Toca a un pasajero y luego una casilla libre para llevarlo. También puedes arrastrar.'},
  {n:'Bello',side:1,t:22,b:[2,2,3,3,4,99,99,99,99,99],packs:0,bags:0,
-  hint:'Los de base amarilla bajan aquí. Sienta a otros en sillas vacías para hacer espacio.'},
+  hint:'Los de base amarilla bajan aquí. Sienta a otros en sillas vacías para hacer espacio.',ev:'puerta'},
  {n:'Madera',side:-1,t:20,b:[3,3,3,4,4,99,99,99,99,99,99],packs:2,bags:0,
-  hint:'Empuja en cadena hasta 2 personas. Quien lleva morral no se deja empujar.'},
+  hint:'Empuja en cadena hasta 2 personas. Quien lleva morral no se deja empujar.',ev:'cambio'},
  {n:'Acevedo',side:1,t:18,b:[4,4,4,4,4,99,99,99,99,99,99,99,99,99,99,99],packs:3,bags:1,
-  hint:'Hora pico. La maleta ocupa dos casillas: muévela a cualquier lado si tiene espacio.'},
+  hint:'Hora pico. La maleta ocupa dos casillas: muévela a cualquier lado si tiene espacio.',ev:'oleada'},
  {n:'Tricentenario',side:-1,t:16,b:[99,99,99,99,99,99,99,99,99],packs:2,bags:1,
-  hint:'Bonificación: cede la silla al adulto mayor y lleva la silla de ruedas a su espacio.'}
+  hint:'Bonificación: cede la silla al adulto mayor y lleva la silla de ruedas a su espacio.',ev:'prioridad'}
 ];
+var CAMPAIGN=ST;
+var LINEA_A=['Niquía','Bello','Madera','Acevedo','Tricentenario','Caribe','Universidad','Hospital','Prado',
+  'Parque Berrío','San Antonio','Alpujarra','Exposiciones','Industriales','Poblado','Aguacatala','Ayurá',
+  'Envigado','Itagüí','Sabaneta','La Estrella'];
+var EVENTS={
+  puerta:{t:'Puerta averiada: una de las puertas no abrirá',s:'Puerta averiada'},
+  cambio:{t:'Al abrir, alguien cambiará de destino y querrá bajar',s:'Cambio de planes'},
+  oleada:{t:'Hay evento: una oleada de pasajeros espera en una puerta',s:'Oleada'},
+  retraso:{t:'Tren con retraso: las puertas quedan abiertas 6 s más',s:'+6 s de puertas'},
+  prioridad:{t:'Suben varios pasajeros prioritarios: cédeles la silla',s:'Prioritarios'}
+};
+var mode='recorrido',streak=0,bestStreak=0,best=0,newBest=false,menuBtns=[];
+function lsGet(k){try{return +(window.localStorage.getItem(k)||0);}catch(e){return 0;}}
+function lsSet(k,v){try{window.localStorage.setItem(k,String(v));}catch(e){}}
+// Estación del modo hora pico: recorre la Línea A de ida y vuelta, cada vez más exigente
+function genStation(k){
+  var per=2*(LINEA_A.length-1),pos=k%per,idx=pos<LINEA_A.length?pos:per-pos,lvl=Math.min(k,30);
+  var s={n:LINEA_A[idx],side:k<3?(k%2?1:-1):(Math.random()<0.5?-1:1),t:Math.round(Math.max(10,24-lvl*0.5)),
+         nb:Math.min(18,5+Math.floor(lvl*0.55)),packs:Math.min(4,Math.floor(lvl/4)),bags:lvl>=4?1:0,hint:'',k:k};
+  if(k>=2&&Math.random()<Math.min(0.55,0.25+lvl*0.02)){
+    var ks=Object.keys(EVENTS);s.ev=ks[Math.floor(Math.random()*ks.length)];
+    if(s.ev==='retraso')s.t+=6;
+  }
+  return s;
+}
+function doorOk(x){
+  var s=ST[st];
+  if(!isDoorCol(x))return false;
+  if(s&&s.ev==='puerta'&&s.broken!==undefined){var P=PAIRS[s.broken];if(x>=P[0]&&x<P[1])return false;}
+  return true;
+}
 var ADS=[
  {b:'Café Aburrá',t:'Tostado en la montaña',c:'#6b3f2a',f:'#ffffff'},
  {b:'Arepas Doña Luz',t:'Calientes desde las 5 a. m.',c:'#f0b429',f:'#3a2a00'},
@@ -238,7 +269,7 @@ function pathToDoor(p,dr){
   prev[k(p.x,p.y)]=0;
   while(q.length){
     var c=q.shift(),x=c[0],y=c[1];
-    if(y===dr&&isDoorCol(x)&&!(x===p.x&&y===p.y)){
+    if(y===dr&&doorOk(x)&&!(x===p.x&&y===p.y)){
       var cur=c,pr;
       while((pr=prev[k(cur[0],cur[1])])&&!(pr[0]===p.x&&pr[1]===p.y))cur=pr;
       return {step:cur,col:x};
@@ -265,8 +296,24 @@ function look(o){
   }
   return o;
 }
+function freeCells(){
+  var used=0,i;for(i=0;i<pieces.length;i++)used+=pieces[i].type==='bag'?2:1;
+  var out=0;for(i=0;i<pieces.length;i++)if(isExiter(pieces[i]))out++;
+  return COLS*ROWS-used+out;
+}
 function makeQueues(si){
-  var s=ST[si],dests=shuffle(s.b),list=[],bags=s.bags,i;
+  var s=ST[si],i;
+  if(mode==='pico'&&!ST[si+1])ST.push(genStation(si+1));
+  if(s.ev==='puerta')s.broken=Math.floor(Math.random()*PAIRS.length);else delete s.broken;
+  var free=freeCells();
+  if(mode==='pico'){
+    var nb=Math.max(3,Math.min(s.nb,free-8)),bagsOn=pieces.filter(function(p){return p.type==='bag';}).length;
+    s.b=[];
+    for(i=0;i<nb;i++)s.b.push(si+1+Math.floor(Math.random()*Math.min(5,2+s.k/4)));
+    s.bags=(s.bags&&bagsOn<2)?1:0;
+    if(s.bags)s.b[0]=99;
+  }
+  var dests=shuffle(s.b),list=[],bags=s.bags;
   for(i=0;i<dests.length;i++){
     var type='std';
     if(bags>0&&dests[i]===99){type='bag';bags--;}
@@ -275,10 +322,21 @@ function makeQueues(si){
   var cand=shuffle(list.filter(function(o){return o.type==='std';}));
   for(i=0;i<s.packs&&i<cand.length;i++)cand[i].type='pack';
   list.forEach(look);
-  var cols=shuffle(DOOR_COLS);queues={};
+  if(s.ev==='prioridad'){
+    var std=list.filter(function(o){return o.type==='std';}),vs=['baston','ciego','silla'];
+    for(i=0;i<3&&i<std.length;i++){std[i].variant=vs[i];if(vs[i]==='baston')std[i].hair=pick(GRAY);}
+  }
+  var cols=shuffle(DOOR_COLS.filter(doorOk));queues={};
   DOOR_COLS.forEach(function(c){queues[c]=[];});
   list=shuffle(list);
   for(i=0;i<list.length;i++)queues[cols[i%cols.length]].push(list[i]);
+  if(s.ev==='oleada'){
+    var extra=Math.max(0,Math.min(5,free-list.length-4)),oc=cols[0];
+    for(i=0;i<extra;i++){
+      var o=look({dest:mode==='pico'?si+1+Math.floor(Math.random()*3):99,type:'std'});
+      queues[oc].push(o);list.push(o);
+    }
+  }
   boardTotal=list.length;boarded=0;
   exitTotal=everyone().filter(isExiter).length;exited=0;
   doneT=0;reserved={};lastBeep=-1;
@@ -293,9 +351,23 @@ function initSeats(){
   }
 }
 initSeats();
-function start(){
+function start(m){
+  mode=m==='pico'?'pico':'recorrido';
+  ST=mode==='pico'?[genStation(0)]:CAMPAIGN;
+  streak=0;bestStreak=0;newBest=false;best=lsGet('pe_best_pico');
   initSeats();floats=[];marks=[];sel=null;pieces=[];leaving=[];score=0;sat=100;starsTotal=0;res=null;drag=null;st=0;
   phase='aprox';pt=0;makeQueues(0);
+}
+function changePlans(){
+  var s=ST[st],dr=doorRow(s.side),n=mode==='pico'?Math.min(3,1+Math.floor((s.k||0)/8)):2;
+  var cand=pieces.filter(function(p){return p.type!=='bag'&&!isExiter(p)&&!busy(p);});
+  cand.sort(function(a,b){return Math.abs(b.y-dr)-Math.abs(a.y-dr);});
+  for(var i=0;i<n&&i<cand.length;i++){
+    cand[i].dest=st;exitTotal++;
+    floats.push({x:cand[i].x+0.5,y:cand[i].y,t:0,txt:'¡Me bajo aquí!'});
+  }
+  if(sel&&isExiter(sel))sel=null;
+  if(drag&&isExiter(drag.p))drag=null;
 }
 function exitersLeft(){return everyone().filter(isExiter).length;}
 function queueLeft(){var n=0;for(var c in queues)n+=queues[c].length;return n;}
@@ -312,7 +384,7 @@ function walkTick(){
       p.inward=0;continue;
     }
     if(!isExiter(p))continue;
-    if(p.y===dr&&isDoorCol(p.x)){
+    if(p.y===dr&&doorOk(p.x)){
       pieces.splice(pieces.indexOf(p),1);
       leaving.push({p:p,t:0,side:s.side});
       exited++;score+=100;beep(880,0.06);
@@ -362,7 +434,12 @@ function closeDoors(early){
   score+=bonus;sat=Math.max(0,sat-missed*15-left*6);
   var bad=missed+left,stars=bad===0?3:(bad<=2?2:1);
   starsTotal+=stars;
-  res={stars:stars,missed:missed,left:left,bonus:bonus,clear:clear,
+  if(stars===3){
+    streak++;bestStreak=Math.max(bestStreak,streak);
+    if(streak>=2){var sb=50*streak;bonus+=sb;score+=sb;}
+    if(mode==='pico')sat=Math.min(100,sat+4);
+  }else streak=0;
+  res={stars:stars,missed:missed,left:left,bonus:bonus,clear:clear,streak:streak,
        exited:exited,exitTotal:exitTotal,boarded:boarded,boardTotal:boardTotal};
   phase='resultado';pt=0;beep(520,0.25);   // el anuncio no pausa: se puede seguir moviendo gente
 }
@@ -379,6 +456,7 @@ function update(dt){
 
   if(phase==='aprox'){
     if(pt>=3.5){phase='abierto';pt=0;walkAcc=0;boardAcc=0;beep(660,0.15);
+      if(ST[st].ev==='cambio')changePlans();
       if(drag&&isExiter(drag.p))drag=null;}
   }else if(phase==='abierto'){
     var s=ST[st];
@@ -392,7 +470,7 @@ function update(dt){
     else if(rem<=0)closeDoors(false);
   }else if(phase==='resultado'){
     if(pt>2.8){
-      if(sat<=0)phase='over';
+      if(sat<=0){phase='over';if(mode==='pico'&&score>best){best=score;newBest=true;lsSet('pe_best_pico',best);lsSet('pe_best_pico_st',st+1);}}
       else if(st===ST.length-1)phase='fin';
       else{st++;phase='tramo';}
       pt=0;
@@ -434,10 +512,12 @@ cv.addEventListener('pointerdown',function(e){
   var r0=cv.getBoundingClientRect(),hx=e.clientX-r0.left,hy=e.clientY-r0.top;
   if(rot){var t0=hx;hx=hy;hy=RW-t0;}
   if(Math.abs(hx-helpBtn.x)<helpBtn.r+8&&Math.abs(hy-helpBtn.y)<helpBtn.r+8){rules=true;drag=null;return;}
-  if(phase==='inicio'||phase==='fin'||phase==='over'){
-    if(phase==='inicio'||pt>0.8)start();
+  if(phase==='inicio'){
+    for(var mi=0;mi<menuBtns.length;mi++){var Bt=menuBtns[mi];
+      if(hx>=Bt.x&&hx<=Bt.x+Bt.w&&hy>=Bt.y&&hy<=Bt.y+Bt.h){start(Bt.m);return;}}
     return;
   }
+  if(phase==='fin'||phase==='over'){if(pt>0.8){phase='inicio';pt=0;}return;}
   if(phase!=='tramo'&&phase!=='aprox'&&phase!=='abierto'&&phase!=='resultado')return;
   var c=toCell(e),cx=Math.floor(c[0]),cy=Math.floor(c[1]),p=null;
   var sc=(c[1]<0&&c[1]>=-0.7)?0:((c[1]>=ROWS&&c[1]<ROWS+0.7)?1:-1);
@@ -701,8 +781,9 @@ function drawStrip(){
   for(i=1;i<=np;i++)g.fillRect(Math.round(i*W/(np+1))-3,0,6,stripH);
   g.fillStyle='#232e39';g.fillRect(0,stripH-5,W,5);g.fillRect(0,0,W,4);
   var label='';
-  if(phase==='tramo')label='Próxima estación: '+ST[st].n;
-  else if(phase==='aprox')label='Llegando a '+ST[st].n;
+  var evs=ST[st].ev?' · ⚠ '+EVENTS[ST[st].ev].s:'',num=mode==='pico'?' · parada '+(st+1):'';
+  if(phase==='tramo')label='Próxima estación: '+ST[st].n+num+evs;
+  else if(phase==='aprox')label='Llegando a '+ST[st].n+evs;
   else if(phase==='abierto')label=ST[st].n+' · puertas abiertas';
   else if(phase==='resultado')label=ST[st].n+' · cierre de puertas';
   if(label){
@@ -892,6 +973,13 @@ function drawCar(){
     for(i=0;i<PAIRS.length;i++){
       var x1=ox+PAIRS[i][0]*cell,x2=ox+PAIRS[i][1]*cell;
       g.lineCap='round';
+      if(mine&&s.broken===i&&s.ev==='puerta'&&(soon||open||phase==='resultado')){
+        g.lineWidth=8;g.strokeStyle='#39444f';g.beginPath();g.moveTo(x1+3,ey);g.lineTo(x2-3,ey);g.stroke();
+        var bm=(x1+x2)/2,br=cell*0.16;
+        g.lineWidth=Math.max(3,cell*0.07);g.strokeStyle=COL.miss;
+        g.beginPath();g.moveTo(bm-br,ey-br);g.lineTo(bm+br,ey+br);g.moveTo(bm+br,ey-br);g.lineTo(bm-br,ey+br);g.stroke();
+        g.lineCap='butt';continue;
+      }
       if(mine&&open){
         g.lineWidth=8;g.strokeStyle='#e3e7ea';g.beginPath();g.moveTo(x1,ey);g.lineTo(x2,ey);g.stroke();
         var f=clamp(1-pt/s.t,0,1),mid=(x1+x2)/2,half=(x2-x1)/2*f;
@@ -1006,13 +1094,15 @@ function drawToast(){
   var show=(phase==='aprox'&&pt>1.2)||(phase==='abierto'&&pt<3.5);
   if(!show||rules)return;
   var s=ST[st],fs=clamp(H/28,11,15),hh=fs+14;
+  var txt=s.ev&&(phase==='aprox'||!s.hint)?'⚠ '+EVENTS[s.ev].t:s.hint;
+  if(!txt)return;
   g.font='600 '+fs+'px '+FONT;
-  var tw=Math.min(W-24,g.measureText(s.hint).width+28);
+  var tw=Math.min(W-24,g.measureText(txt).width+28);
   var y=stripH-hh-6;   // sobre la franja de publicidad, sin tapar el vagón
   y=Math.max(y,8+fs+16);
   rr((W-tw)/2,y,tw,hh,hh/2);g.fillStyle='rgba(24,33,43,0.92)';g.fill();
   g.fillStyle='#fff';g.textAlign='center';g.textBaseline='middle';
-  fitText(s.hint,tw-24,fs,'600');g.fillText(s.hint,W/2,y+hh/2+0.5);
+  fitText(txt,tw-24,fs,'600');g.fillText(txt,W/2,y+hh/2+0.5);
 }
 var DEMO=null;
 function drawRules(){
@@ -1084,6 +1174,7 @@ function drawResult(){
            ['Bajaron '+res.exited+'/'+res.exitTotal+' · Subieron '+res.boarded+'/'+res.boardTotal,'#e3e9ee','600']];
   if(res.missed)seg.push([res.missed+(res.missed===1?' perdió su parada':' perdieron su parada'),'#ff9c8c','700']);
   if(res.left)seg.push([res.left+(res.left===1?' quedó en el andén':' quedaron en el andén'),'#ff9c8c','700']);
+  if(res.streak>=2)seg.push(['Racha x'+res.streak,'#f4c430','800']);
   if(res.bonus)seg.push(['+'+res.bonus+' pts','#7fe0a4','800']);
   var fs=clamp(cell*0.34,11,18),gap=fs*0.9,tw=0,i,ws=[];
   for(var pass=0;pass<2;pass++){
@@ -1102,28 +1193,53 @@ function drawResult(){
   }
   g.globalAlpha=1;
 }
+function drawMenu(b){
+  g.fillStyle='rgba(15,22,30,0.55)';g.fillRect(0,stripH,W,H-stripH);
+  var cw=Math.min(W-36,600),ch=Math.min(H-stripH-16,b*14.5),x=(W-cw)/2,y=stripH+(H-stripH-ch)/2;
+  rr(x,y,cw,ch,16);g.fillStyle='#fff';g.fill();
+  g.textAlign='center';g.textBaseline='middle';g.fillStyle='#1d2630';
+  fitText('Próxima Estación',cw-28,b*1.6,'800');g.fillText('Próxima Estación',W/2,y+b*1.7);
+  g.fillStyle='#5a6875';fitText('Elige cómo quieres jugar',cw-28,b*0.95,'500');g.fillText('Elige cómo quieres jugar',W/2,y+b*3.3);
+  var pad=14,bw=(cw-pad*3)/2,by=y+b*4.6,bh=y+ch-pad-by;
+  var rec=lsGet('pe_best_pico'),recSt=lsGet('pe_best_pico_st');
+  var opts=[
+    {m:'recorrido',c:'#1d6b45',l:['Recorrido','Niquía → Tricentenario','5 estaciones para aprender']},
+    {m:'pico',c:'#b5462f',l:['Hora pico','Sin fin: cada parada más difícil',rec?'Récord: '+rec+' pts · '+recSt+(recSt===1?' parada':' paradas'):'Eventos sorpresa y rachas']}
+  ];
+  menuBtns=[];
+  for(var i=0;i<2;i++){
+    var bx=x+pad+i*(bw+pad),o=opts[i];
+    rr(bx,by,bw,bh,12);g.fillStyle=o.c;g.fill();
+    g.fillStyle='#fff';
+    fitText(o.l[0],bw-20,b*1.35,'800');g.fillText(o.l[0],bx+bw/2,by+bh*0.3);
+    fitText(o.l[1],bw-20,b*0.85,'600');g.fillText(o.l[1],bx+bw/2,by+bh*0.58);
+    g.fillStyle='rgba(255,255,255,0.8)';fitText(o.l[2],bw-20,b*0.78,'500');g.fillText(o.l[2],bx+bw/2,by+bh*0.8);
+    menuBtns.push({x:bx,y:by,w:bw,h:bh,m:o.m});
+  }
+}
 function drawOverlay(){
   var b=clamp(Math.min(W/26,H/24),11,17);
   if(phase==='inicio'){
-    card([
-      {t:'Próxima Estación',size:b*1.7,weight:'800'},
-      {t:'Prototipo · Niquía → Tricentenario',size:b*0.95,color:'#5a6875'},
+    drawMenu(b);
+  }else if(mode==='pico'&&phase==='over'){
+    var L=[
+      {t:'Fin de la hora pico',size:b*1.4,weight:'800'},
+      {t:'Llegaste a '+(st+1)+(st===0?' parada':' paradas')+' · hasta '+ST[st].n,size:b,color:'#5a6875'},
+      {t:score+' puntos',size:b*1.6,weight:'800'},
+      {t:newBest?'¡Nuevo récord!':'Récord: '+best+' puntos',size:b*1.05,weight:'700',color:newBest?'#1d6b45':'#5a6875'},
+      {t:'Mejor racha de paradas perfectas: '+bestStreak,size:b*0.95,color:'#5a6875'},
       {t:' ',size:b*0.3},
-      {t:'Arrastra a los pasajeros, o tócalos y toca una casilla libre.',size:b},
-      {t:'Los de base amarilla bajan en la próxima estación',size:b},
-      {t:'y caminan solos cuando tienen paso libre.',size:b},
-      {t:'Despeja las puertas antes de que se apague su luz.',size:b},
-      {t:' ',size:b*0.3},
-      {t:'Toca para empezar',size:b*1.1,weight:'800',color:'#1d6b45'}
-    ]);
+      {t:'Toca para volver al menú',size:b*1.1,weight:'800',color:'#1d6b45'}
+    ];
+    card(L);
   }else if(phase==='fin'||phase==='over'){
     card([
       {t:phase==='fin'?'Fin del recorrido':'El vagón perdió la paciencia',size:b*1.4,weight:'800'},
       {t:starStr(starsTotal,ST.length*3),size:b*1.2,color:'#e8a020'},
       {t:score+' puntos',size:b*1.5,weight:'800'},
-      {t:'Satisfacción final: '+sat+' %',size:b,color:'#5a6875'},
+      {t:'Satisfacción final: '+sat+' % · mejor racha: '+bestStreak,size:b,color:'#5a6875'},
       {t:' ',size:b*0.3},
-      {t:'Toca para jugar de nuevo',size:b*1.1,weight:'800',color:'#1d6b45'}
+      {t:'Toca para volver al menú',size:b*1.1,weight:'800',color:'#1d6b45'}
     ]);
   }
 }
@@ -1140,8 +1256,8 @@ function frame(ts){
   requestAnimationFrame(frame);
 }
 // ganchos para pruebas automáticas
-window.__game={geom:function(){return {ox:ox,oy:oy,cell:cell};},start:start,update:update,draw:draw,chainFor:chainFor,orderMove:orderMove,orderSit:orderSit,reach:reach,sel:function(){return sel;},trySit:trySit,stand:stand,seats:function(){return seats;},checkZone:checkZone,
-  rules:function(v){rules=v;},state:function(){return {phase:phase,st:st,pieces:pieces,score:score,sat:sat,queues:queues};}};
+window.__game={geom:function(){return {ox:ox,oy:oy,cell:cell};},start:start,genStation:genStation,mode:function(){return mode;},menu:function(){return menuBtns;},update:update,draw:draw,chainFor:chainFor,orderMove:orderMove,orderSit:orderSit,reach:reach,sel:function(){return sel;},trySit:trySit,stand:stand,seats:function(){return seats;},checkZone:checkZone,
+  rules:function(v){rules=v;},setSat:function(v){sat=v;},state:function(){return {ST:ST,streak:streak,phase:phase,st:st,pieces:pieces,score:score,sat:sat,queues:queues};}};
 requestAnimationFrame(frame);
 })();
 </script>
