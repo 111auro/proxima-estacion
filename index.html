@@ -379,6 +379,7 @@ function initSeats(){
 }
 initSeats();
 function start(m){
+  if(m==='cable'){startU();return;}
   mode=m==='pico'||m==='cable'?m:'recorrido';
   setVehicle(mode==='cable'?VEH_CABLE:VEH_METRO);
   ST=mode==='pico'?[genStation(0)]:(mode==='cable'?CABLE:CAMPAIGN);
@@ -475,6 +476,7 @@ function closeDoors(early){
 function update(dt){
   if(rules)return;
   time+=dt;pt+=dt;
+  if(mode==='cable'){updateU(dt);return;}
   var oyT=ST[st].side>0?oyB:oyA;
   if(Math.abs(oyT-oy)<0.5)oy=oyT;else oy+=(oyT-oy)*Math.min(1,dt*5);
   var speed=0;
@@ -546,6 +548,7 @@ cv.addEventListener('pointerdown',function(e){
     return;
   }
   if(phase==='fin'||phase==='over'){if(pt>0.8){phase='inicio';pt=0;}return;}
+  if(mode==='cable'){uDown(hx,hy,e);return;}
   if(phase!=='tramo'&&phase!=='aprox'&&phase!=='abierto'&&phase!=='resultado')return;
   var c=toCell(e),cx=Math.floor(c[0]),cy=Math.floor(c[1]),p=null;
   var sc=(c[1]<0&&c[1]>=-0.7)?0:((c[1]>=ROWS&&c[1]<ROWS+0.7)?1:-1);
@@ -577,6 +580,7 @@ cv.addEventListener('pointerdown',function(e){
   try{cv.setPointerCapture(e.pointerId);}catch(err){}
 });
 cv.addEventListener('pointermove',function(e){
+  if(mode==='cable'){uMove(e);return;}
   if(!drag||e.pointerId!==drag.id)return;
   e.preventDefault();
   var p=drag.p,c=toCell(e),dx=c[0]-drag.gx-p.x,dy=c[1]-drag.gy-p.y;
@@ -605,6 +609,7 @@ cv.addEventListener('pointermove',function(e){
   drag.resx=clamp(dx,-0.3,0.3);drag.resy=clamp(dy,-0.3,0.3);
 });
 function endDrag(e){
+  if(mode==='cable'){uUp(e);return;}
   if(!drag||e.pointerId!==drag.id)return;
   var d=drag;drag=null;
   if(e.type!=='pointerup')return;
@@ -801,8 +806,8 @@ function drawCableScene(){
     }
   }
   // Parque Biblioteca España al acercarse a Santo Domingo
-  if(ST[st]&&ST[st].n==='Santo Domingo'&&phase==='tramo'){
-    var bh=stripH*0.8,bx=W*1.05-pt*W*0.16;
+  if(mode==='cable'||(ST[st]&&ST[st].n==='Santo Domingo'&&phase==='tramo')){
+    var bh=stripH*0.8,bx=mode==='cable'?W*0.6:W*1.05-pt*W*0.16;
     drawLandmark('biblioteca',bx,stripH-4,bh);
   }
   // cables y cabinas que vienen en sentido contrario
@@ -1280,7 +1285,7 @@ function drawMenu(b){
   var rec=lsGet('pe_best_pico'),recSt=lsGet('pe_best_pico_st');
   var opts=[
     {m:'recorrido',c:'#1d6b45',l:['Recorrido','Niquía → Tricentenario','5 estaciones para aprender']},
-    {m:'cable',c:'#2f6f9a',l:['Metrocable','Línea K: ida y vuelta','Cabinas de 10 personas']},
+    {m:'cable',c:'#2f6f9a',l:['Metrocable','Estación en U: Santo Domingo',lsGet('pe_best_cable')?'Récord: '+lsGet('pe_best_cable')+' pts':'Varias cabinas a la vez']},
     {m:'pico',c:'#b5462f',l:['Hora pico','Sin fin, cada vez más difícil',rec?'Récord: '+rec+' pts · '+recSt+(recSt===1?' parada':' paradas'):'Eventos sorpresa y rachas']}
   ];
   menuBtns=[];
@@ -1322,10 +1327,484 @@ function drawOverlay(){
 }
 
 function draw(){
+  if(mode==='cable'){drawU();return;}
   g.fillStyle='#232e39';g.fillRect(0,0,W,H);
   drawStrip();drawCar();drawToast();drawResult();drawOverlay();drawHud();
   if(rules)drawRules();
 }
+// ===================== Metrocable: estación terminal en U (Santo Domingo) =====================
+// Las cabinas no se detienen: entran por la vía de abajo (llegada), giran en la rueda y salen
+// por la vía de arriba (salida). Abajo bajan todos; arriba sube la fila del andén.
+var TURNOS=[
+  {n:'Mañana',spawn:7.2,cross:10,sleep:0.12,occ:[3,6],dur:100,rate:0.55,
+   hint:'Abajo bajan todos y arriba suben. Toca a quien va dormido para despertarlo.'},
+  {n:'Mediodía',spawn:5.6,cross:8.5,sleep:0.18,occ:[4,7],dur:110,rate:0.8,
+   hint:'Lleva hacia adentro a quienes suben, para que quepan más.'},
+  {n:'Hora pico',spawn:4.3,cross:7,sleep:0.25,occ:[5,8],dur:120,rate:1.05,
+   hint:'Varias cabinas a la vez: reparte tu atención entre la llegada y la salida.'}
+];
+var UC=4,UR=2,UDOOR=[1,2];   // cabina: 4 x 2 puestos, puerta en las dos casillas centrales del lado exterior
+var U={cabs:[],queue:[],out:[],turno:0,tleft:0,spawnT:0,arrT:0,tick:0,tickN:0,board:0,
+       exits:0,boarded:0,missed:0,turnStars:[],res:null,sel:null,drag:null,nextId:1,qOver:0};
+
+function uGeo(){
+  var top=stripH+6,Ha=H-top-6;
+  var u=Math.max(18,Math.floor(Math.min(Ha/7.3,W/21)));
+  var CW=UC*u,R=1.5*u;
+  var cyTop=top+1.3*u+u,cyBot=cyTop+2*R;
+  var xW=Math.round(u*1.3+R);
+  var openL=xW+R+CW/2+0.2*u,openR=W-CW/2-0.25*u,xS=W+CW/2+10;
+  return {top:top,u:u,CW:CW,R:R,cyTop:cyTop,cyBot:cyBot,cy0:(cyTop+cyBot)/2,xW:xW,
+          openL:openL,openR:openR,xS:xS,Lb:xS-xW};
+}
+function cabPos(d,G){
+  if(d<G.Lb)return {x:G.xS-d,y:G.cyBot,a:0,seg:'arr'};
+  var e=d-G.Lb,arc=Math.PI*G.R;
+  if(e<arc){var th=e/G.R,ph=Math.PI/2+th;return {x:G.xW+G.R*Math.cos(ph),y:G.cy0+G.R*Math.sin(ph),a:th,seg:'turn'};}
+  return {x:G.xW+(e-arc),y:G.cyTop,a:Math.PI,seg:'dep'};
+}
+function doorOpenU(pos,G){return pos.seg!=='turn'&&pos.x>=G.openL&&pos.x<=G.openR;}
+function occU(c,x,y,except){for(var i=0;i<c.occ.length;i++){var p=c.occ[i];if(p!==except&&p.lx===x&&p.ly===y)return p;}return null;}
+function isDoorU(x,y){return y===UR-1&&UDOOR.indexOf(x)>=0;}
+
+function newBoarder(){
+  var p=look({type:Math.random()<0.2?'pack':'std'});
+  if(p.variant==='silla'&&Math.random()<0.5)p.variant='';
+  p.id=U.nextId++;return p;
+}
+function spawnCab(){
+  var T=TURNOS[U.turno],n=T.occ[0]+Math.floor(Math.random()*(T.occ[1]-T.occ[0]+1)),cells=[],i;
+  for(var y=0;y<UR;y++)for(var x=0;x<UC;x++)cells.push([x,y]);
+  cells=shuffle(cells);
+  var c={d:0,occ:[],perfect:true,closedArr:false,closedDep:false,id:U.nextId++};
+  for(i=0;i<n&&i<cells.length;i++){
+    var p=look({type:Math.random()<0.15?'pack':'std'});
+    p.id=U.nextId++;p.lx=cells[i][0];p.ly=cells[i][1];p.rx=p.lx;p.ry=p.ly;
+    p.sleep=Math.random()<T.sleep;p.boarder=false;p.missed=false;
+    c.occ.push(p);
+  }
+  U.cabs.push(c);
+}
+function startU(){
+  mode='cable';setVehicle(VEH_CABLE);ST=CABLE;st=3;
+  pieces=[];leaving=[];floats=[];marks=[];sel=null;drag=null;queues={};res=null;
+  score=0;sat=100;streak=0;bestStreak=0;newBest=false;best=lsGet('pe_best_cable');
+  U.turno=0;U.turnStars=[];uStartTurno();
+}
+function uStartTurno(){
+  var T=TURNOS[U.turno];
+  U.cabs=[];U.queue=[];U.out=[];U.tleft=T.dur;U.spawnT=0.4;U.arrT=11;U.tick=0;U.board=0;
+  U.exits=0;U.boarded=0;U.missed=0;U.sel=null;U.drag=null;U.res=null;U.qOver=0;
+  for(var i=0;i<3;i++)U.queue.push(newBoarder());
+  phase='uplay';pt=0;
+}
+function uEndTurno(){
+  var T=TURNOS[U.turno],m=U.missed;
+  var stars=(m===0&&sat>=70)?3:((m<=3&&sat>=40)?2:1);
+  U.turnStars.push(stars);
+  U.res={n:T.n,stars:stars,exits:U.exits,boarded:U.boarded,missed:m,queue:U.queue.length};
+  U.sel=null;U.drag=null;
+  if(U.turno>=TURNOS.length-1){phase='fin';uSaveBest();}else phase='uturno';
+  pt=0;beep(520,0.25);
+}
+function uSaveBest(){if(score>best){best=score;newBest=true;lsSet('pe_best_cable',best);}}
+
+// camino dentro de la cabina, sin atravesar a nadie
+function uPath(c,p,isGoal){
+  var prev={},q=[[p.lx,p.ly]],K=function(x,y){return y*UC+x;};
+  prev[K(p.lx,p.ly)]=-1;
+  while(q.length){
+    var cur=q.shift();
+    if(isGoal(cur[0],cur[1])&&!(cur[0]===p.lx&&cur[1]===p.ly)){
+      var out=[],k=cur;
+      while(prev[K(k[0],k[1])]!==-1){out.unshift(k);k=prev[K(k[0],k[1])];}
+      return out;
+    }
+    for(var i=0;i<4;i++){
+      var nx=cur[0]+D[i][0],ny=cur[1]+D[i][1];
+      if(nx<0||nx>=UC||ny<0||ny>=UR||occU(c,nx,ny,p)||prev[K(nx,ny)]!==undefined)continue;
+      prev[K(nx,ny)]=cur;q.push([nx,ny]);
+    }
+  }
+  return null;
+}
+function uWalk(G){
+  U.tickN++;
+  for(var ci=0;ci<U.cabs.length;ci++){
+    var c=U.cabs[ci],pos=cabPos(c.d,G);
+    if(pos.seg!=='arr'||!doorOpenU(pos,G))continue;
+    var list=c.occ.slice();
+    for(var i=0;i<list.length;i++){
+      var p=list[i];
+      if(p.boarder||p.sleep||(p.anim&&p.anim.length))continue;
+      if(p.variant==='silla'&&U.tickN%2)continue;
+      if(U.drag&&U.drag.p===p)continue;
+      if(isDoorU(p.lx,p.ly)){
+        c.occ.splice(c.occ.indexOf(p),1);
+        var sp=uCellScreen(pos,G,p.lx,p.ly);
+        U.out.push({p:p,x:sp[0],y:sp[1],a:pos.a,t:0});
+        U.exits++;score+=100;beep(880,0.05);
+        if(U.sel&&U.sel.p===p)U.sel=null;
+        continue;
+      }
+      var path=uPath(c,p,isDoorU);
+      if(path&&path.length){p.lx=path[0][0];p.ly=path[0][1];p.walking=true;}
+    }
+  }
+}
+function uBoard(G){
+  if(!U.queue.length)return;
+  var open=[];
+  for(var ci=0;ci<U.cabs.length;ci++){
+    var c=U.cabs[ci],pos=cabPos(c.d,G);
+    if(pos.seg==='dep'&&doorOpenU(pos,G))open.push({c:c,x:pos.x});
+  }
+  open.sort(function(a,b){return b.x-a.x;});   // primero la cabina que está por salir
+  for(var i=0;i<open.length&&U.queue.length;i++){
+    var c2=open[i].c,free=null;
+    for(var k=0;k<UDOOR.length;k++)if(!occU(c2,UDOOR[k],UR-1)){free=UDOOR[k];break;}
+    if(free===null)continue;
+    var p=U.queue.shift();
+    p.lx=free;p.ly=UR-1;p.rx=free;p.ry=UR-1+0.9;p.boarder=true;p.sleep=false;p.missed=false;p.anim=null;
+    c2.occ.push(p);U.boarded++;score+=100;
+  }
+}
+function uCellScreen(pos,G,lx,ly){
+  var ox2=(lx+0.5)*G.u-G.CW/2,oy2=(ly+0.5)*G.u-G.u,ca=Math.cos(pos.a),sa=Math.sin(pos.a);
+  return [pos.x+ox2*ca-oy2*sa,pos.y+ox2*sa+oy2*ca];
+}
+function updateU(dt){
+  var j;
+  for(j=floats.length-1;j>=0;j--){floats[j].t+=dt;if(floats[j].t>1.4)floats.splice(j,1);}
+  for(j=marks.length-1;j>=0;j--){marks[j].t+=dt;if(marks[j].t>0.6)marks.splice(j,1);}
+  if(phase!=='uplay')return;
+  var T=TURNOS[U.turno],G=uGeo(),v=(G.openR-G.openL)/T.cross;
+  U.tleft-=dt;bgx+=dt*10;
+  if(U.tleft>0){
+    U.spawnT-=dt;
+    if(U.spawnT<=0){spawnCab();U.spawnT=T.spawn*(0.85+Math.random()*0.3);}
+    U.arrT-=dt;
+    if(U.arrT<=0){U.queue.push(newBoarder());U.arrT=(1/T.rate)*(0.6+Math.random()*0.8);}
+  }
+  for(var ci=U.cabs.length-1;ci>=0;ci--){
+    var c=U.cabs[ci];c.d+=v*dt;
+    var pos=cabPos(c.d,G);
+    if(!c.closedArr&&(pos.seg!=='arr'||pos.x<G.openL)){
+      c.closedArr=true;
+      var left=c.occ.filter(function(p){return !p.boarder;});
+      for(var i=0;i<left.length;i++){
+        left[i].missed=true;left[i].sleep=false;U.missed++;sat=Math.max(0,sat-8);
+        var sp=uCellScreen(pos,G,left[i].lx,left[i].ly);
+        floats.push({x:(sp[0]-ox)/cell,y:(sp[1]-oy)/cell,t:0,txt:'¡No alcancé!',sx:sp[0],sy:sp[1]});
+      }
+      if(left.length){c.perfect=false;streak=0;}
+      else{
+        streak++;bestStreak=Math.max(bestStreak,streak);sat=Math.min(100,sat+2);
+        if(streak>=2){var sb=25*Math.min(streak,10);score+=sb;floats.push({t:0,txt:'Racha x'+streak+' · +'+sb,sx:G.openL,sy:G.cyBot+G.u*1.2});}
+      }
+      if(U.sel&&U.sel.c===c&&!U.sel.p.boarder)U.sel=null;
+    }
+    if(pos.seg==='dep'&&pos.x>W+G.CW){
+      U.cabs.splice(ci,1);
+      if(U.sel&&U.sel.c===c)U.sel=null;
+      if(U.drag&&U.drag.c===c)U.drag=null;
+    }
+  }
+  U.tick+=dt;while(U.tick>=0.15){U.tick-=0.15;uWalk(G);}
+  U.board+=dt;while(U.board>=0.35){U.board-=0.35;uBoard(G);}
+  if(U.queue.length>14){sat=Math.max(0,sat-dt*2.5);U.qOver+=dt;}
+  // animación de pasos dentro de cada cabina
+  var k=Math.min(1,dt*14);
+  for(ci=0;ci<U.cabs.length;ci++){
+    var cc=U.cabs[ci];
+    for(j=0;j<cc.occ.length;j++){
+      var p=cc.occ[j];
+      if(p.anim&&p.anim.length){
+        var w=p.anim[0],ddx=w[0]-p.rx,ddy=w[1]-p.ry,dist=Math.sqrt(ddx*ddx+ddy*ddy),stp=dt*11;
+        if(dist<=stp){p.rx=w[0];p.ry=w[1];p.anim.shift();}else{p.rx+=ddx/dist*stp;p.ry+=ddy/dist*stp;}
+      }else{p.rx+=(p.lx-p.rx)*k;p.ry+=(p.ly-p.ry)*k;}
+      if(p.shake>0)p.shake-=dt;
+    }
+  }
+  for(j=U.out.length-1;j>=0;j--){U.out[j].t+=dt;if(U.out[j].t>0.6)U.out.splice(j,1);}
+  if(U.sel&&(U.cabs.indexOf(U.sel.c)<0||U.sel.c.occ.indexOf(U.sel.p)<0))U.sel=null;
+  if(sat<=0){phase='over';pt=0;uSaveBest();U.sel=null;U.drag=null;return;}
+  if(U.tleft<=0)uEndTurno();
+}
+
+// ---------- entrada ----------
+function scr(e){
+  var r=cv.getBoundingClientRect(),x=e.clientX-r.left,y=e.clientY-r.top;
+  if(rot){var t=x;x=y;y=RW-t;}
+  return [x,y];
+}
+function uHit(sx,sy){
+  var G=uGeo();
+  for(var i=U.cabs.length-1;i>=0;i--){
+    var c=U.cabs[i],pos=cabPos(c.d,G);
+    if(pos.seg==='turn')continue;
+    var dx=sx-pos.x,dy=sy-pos.y,ca=Math.cos(pos.a),sa=Math.sin(pos.a);
+    var lx=dx*ca+dy*sa,ly=-dx*sa+dy*ca;
+    var cx=Math.floor((lx+G.CW/2)/G.u),cy=Math.floor((ly+G.u)/G.u);
+    if(cx>=0&&cx<UC&&cy>=0&&cy<UR)return {c:c,cx:cx,cy:cy,pos:pos};
+  }
+  return null;
+}
+function uOrder(c,p,tx,ty,G){
+  if(p.anim&&p.anim.length)return false;
+  var path=uPath(c,p,function(x,y){return x===tx&&y===ty;});
+  if(!path||!path.length){
+    var pos=cabPos(c.d,G),sp=uCellScreen(pos,G,tx,ty);
+    marks.push({t:0,sx:sp[0],sy:sp[1]});p.shake=0.18;vib(25);beep(220,0.08);return false;
+  }
+  var last=path[path.length-1];p.lx=last[0];p.ly=last[1];p.anim=path;p.walking=false;
+  vib(10);beep(620,0.04);return true;
+}
+function uDown(sx,sy,e){
+  if(phase==='uturno'){if(pt>0.8){U.turno++;sat=Math.min(100,sat+25);uStartTurno();}return;}
+  if(phase!=='uplay')return;
+  var G=uGeo(),h=uHit(sx,sy);
+  var mover=(U.drag&&!U.drag.moved&&e.pointerId!==U.drag.id)?U.drag:U.sel;
+  if(!h){U.sel=null;return;}
+  var p=occU(h.c,h.cx,h.cy,null);
+  if(p){
+    if(U.drag)return;
+    if(p.sleep){
+      p.sleep=false;var sp=uCellScreen(h.pos,G,p.lx,p.ly);
+      floats.push({t:0,txt:'¡Ya voy!',sx:sp[0],sy:sp[1]});beep(760,0.06);vib(12);return;
+    }
+    if(p.anim&&p.anim.length)return;
+    U.drag={c:h.c,p:p,id:e.pointerId,moved:false,far:false,sx:sx,sy:sy};
+    return;
+  }
+  if(mover&&mover.c===h.c&&h.c.occ.indexOf(mover.p)>=0){
+    if(uOrder(h.c,mover.p,h.cx,h.cy,G)){U.sel=null;if(U.drag&&U.drag.p===mover.p)U.drag=null;}
+  }
+}
+function uMove(e){
+  if(!U.drag||e.pointerId!==U.drag.id||phase!=='uplay')return;
+  e.preventDefault();
+  var s=scr(e),G=uGeo(),d=U.drag;
+  if(Math.abs(s[0]-d.sx)>G.u*0.35||Math.abs(s[1]-d.sy)>G.u*0.35)d.far=true;
+  var h=uHit(s[0],s[1]);
+  if(!h||h.c!==d.c||d.c.occ.indexOf(d.p)<0)return;
+  var p=d.p;
+  if(Math.abs(h.cx-p.lx)+Math.abs(h.cy-p.ly)===1&&!occU(d.c,h.cx,h.cy,p)){
+    p.lx=h.cx;p.ly=h.cy;p.anim=null;d.moved=true;U.sel=null;
+  }
+}
+function uUp(e){
+  if(!U.drag||e.pointerId!==U.drag.id)return;
+  var d=U.drag;U.drag=null;
+  if(e.type!=='pointerup'||d.moved||d.far)return;
+  if(d.c.occ.indexOf(d.p)<0)return;
+  U.sel=(U.sel&&U.sel.p===d.p)?null:{c:d.c,p:d.p};
+  if(U.sel){vib(8);beep(560,0.04);}
+}
+
+// ---------- dibujo ----------
+function uPieceColor(p,pos){
+  if(p.missed)return '#e7b0a6';
+  if(p.sleep)return '#b39ddb';
+  if(p.boarder)return COL.sube;
+  if(pos.seg==='arr')return p.walking?COL.walk:COL.baja;
+  return COL.stay;
+}
+function drawCabin(c,G){
+  var pos=cabPos(c.d,G),u=G.u,CW=G.CW,open=doorOpenU(pos,G);
+  g.save();g.translate(pos.x,pos.y);g.rotate(pos.a);
+  // cuerpo con ventanales
+  rr(-CW/2-u*0.16,-u-u*0.16,CW+u*0.32,2*u+u*0.32,u*0.5);
+  g.fillStyle='#e3e7ea';g.fill();g.lineWidth=3;g.strokeStyle='#4f5c68';g.stroke();
+  rr(-CW/2-u*0.09,-u-u*0.09,CW+u*0.18,2*u+u*0.18,u*0.45);
+  g.lineWidth=Math.max(2,u*0.07);g.strokeStyle='rgba(143,208,240,0.8)';g.stroke();
+  g.fillStyle='#cfd6dc';g.fillRect(-CW/2,-u,CW,2*u);
+  // bancas a los lados
+  g.fillStyle='rgba(79,115,145,0.35)';g.fillRect(-CW/2,-u,u*0.14,2*u);g.fillRect(CW/2-u*0.14,-u,u*0.14,2*u);
+  g.strokeStyle='rgba(80,95,110,0.15)';g.lineWidth=1;
+  for(var i=1;i<UC;i++){g.beginPath();g.moveTo(-CW/2+i*u,-u);g.lineTo(-CW/2+i*u,u);g.stroke();}
+  g.beginPath();g.moveTo(-CW/2,0);g.lineTo(CW/2,0);g.stroke();
+  // puerta (lado exterior = abajo en coordenadas de la cabina)
+  var x1=-CW/2+UDOOR[0]*u,x2=-CW/2+(UDOOR[UDOOR.length-1]+1)*u,ey=u+u*0.16;
+  g.lineCap='round';g.lineWidth=7;
+  if(open){
+    var f=pos.seg==='arr'?(pos.x-G.openL)/(G.openR-G.openL):(G.openR-pos.x)/(G.openR-G.openL);
+    f=clamp(f,0,1);
+    g.strokeStyle='#e3e7ea';g.beginPath();g.moveTo(x1,ey);g.lineTo(x2,ey);g.stroke();
+    var mid=(x1+x2)/2,half=(x2-x1)/2*f;
+    g.strokeStyle=f>0.5?'#2fae62':(f>0.25?'#e8a020':'#d8402f');g.lineWidth=6;
+    g.beginPath();g.moveTo(mid-half,ey);g.lineTo(mid+half,ey);g.stroke();
+  }else{g.strokeStyle='#39444f';g.beginPath();g.moveTo(x1+3,ey);g.lineTo(x2-3,ey);g.stroke();}
+  g.lineCap='butt';
+  // casillas alcanzables del seleccionado
+  if(U.sel&&U.sel.c===c){
+    var pr=U.sel.p;
+    for(var yy=0;yy<UR;yy++)for(var xx=0;xx<UC;xx++){
+      if(occU(c,xx,yy,null))continue;
+      if(!uPath(c,pr,function(a,b){return a===xx&&b===yy;}))continue;
+      rr(-CW/2+xx*u+3,-u+yy*u+3,u-6,u-6,u*0.18);g.fillStyle='rgba(68,184,116,0.18)';g.fill();
+      circ(-CW/2+(xx+0.5)*u,-u+(yy+0.5)*u,u*0.06);g.fillStyle='rgba(29,107,69,0.6)';g.fill();
+    }
+  }
+  // pasajeros
+  for(i=0;i<c.occ.length;i++){
+    var p=c.occ[i],shx=p.shake>0?Math.sin(p.shake*90)*u*0.05:0;
+    var px=-CW/2+(p.rx+0.5)*u+shx,py=-u+(p.ry+0.5)*u,B=u*0.44,dragging=U.drag&&U.drag.p===p;
+    if(dragging)B*=1.08;
+    circ(px,py,B);g.fillStyle=uPieceColor(p,pos);g.fill();
+    g.lineWidth=1.5;g.strokeStyle='rgba(20,30,40,0.4)';g.stroke();
+    if(p.type==='pack'){g.setLineDash([4,3]);g.lineWidth=2;g.strokeStyle='#1f2831';circ(px,py,B);g.stroke();g.setLineDash([]);}
+    var face=p.boarder?Math.PI:(pos.seg==='arr'&&!p.missed?Math.PI:0);
+    drawFigure(px,py,u*0.36,p,face);
+    if(p.sleep){
+      g.save();g.translate(px+B*0.55,py-B*0.6);g.rotate(-pos.a);
+      g.fillStyle='#4b3a78';g.font='800 '+Math.round(u*0.3)+'px '+FONT;g.textAlign='center';g.textBaseline='middle';
+      g.fillText('z',0,Math.sin(time*3)*2);g.font='800 '+Math.round(u*0.22)+'px '+FONT;g.fillText('z',u*0.18,-u*0.18+Math.sin(time*3+1)*2);
+      g.restore();
+    }
+    if(p.missed){g.lineWidth=3;g.strokeStyle=COL.miss;circ(px,py,B-1.5);g.stroke();}
+    if(U.sel&&U.sel.p===p){
+      circ(px,py,B+4);g.lineWidth=2;g.strokeStyle='rgba(20,30,40,0.7)';g.stroke();
+      circ(px,py,B+2.5);g.lineWidth=3;g.strokeStyle='rgba(255,255,255,'+(0.75+0.25*Math.sin(time*8))+')';g.stroke();
+    }
+  }
+  g.restore();
+}
+function drawStationU(G){
+  var u=G.u,i;
+  // estructura de la estación
+  g.fillStyle='#2b3640';g.fillRect(0,G.top,W,H-G.top);
+  // andén de salida (arriba) y de llegada (abajo)
+  var depY=G.top,depH=G.cyTop-u-u*0.2-G.top,arrY=G.cyBot+u+u*0.2,arrH=H-arrY;
+  g.fillStyle='#b8b2a6';g.fillRect(G.openL-G.CW/2,depY,W,depH);g.fillRect(G.openL-G.CW/2,arrY,W,arrH);
+  g.fillStyle='#f4c430';g.fillRect(G.openL-G.CW/2,depY+depH-4,W,3);g.fillRect(G.openL-G.CW/2,arrY+1,W,3);
+  // vías y rueda
+  g.strokeStyle='#59646e';g.lineWidth=Math.max(3,u*0.1);
+  g.beginPath();g.moveTo(W,G.cyBot);g.lineTo(G.xW,G.cyBot);g.arc(G.xW,G.cy0,G.R,Math.PI/2,Math.PI*1.5);g.lineTo(W,G.cyTop);g.stroke();
+  circ(G.xW,G.cy0,G.R*0.62);g.fillStyle='#3b4651';g.fill();g.lineWidth=3;g.strokeStyle='#6c7882';g.stroke();
+  g.save();g.translate(G.xW,G.cy0);g.rotate(time*0.6);g.strokeStyle='#6c7882';g.lineWidth=2;
+  for(i=0;i<6;i++){g.rotate(Math.PI/3);g.beginPath();g.moveTo(0,0);g.lineTo(G.R*0.6,0);g.stroke();}
+  g.restore();
+  // rótulos
+  var fs=Math.max(9,Math.min(13,u*0.3));
+  g.font='800 '+fs+'px '+FONT;g.textAlign='left';g.textBaseline='middle';g.fillStyle='#3d4752';
+  g.fillText('SALIDA  ▶',G.openL-G.CW/2+8,depY+depH*0.5);
+  g.fillText('◀  LLEGADA',G.openL-G.CW/2+8,arrY+Math.min(arrH,u)*0.55);
+  // fila del andén de salida
+  var qn=U.queue.length,spc=u*0.82,maxV=Math.max(1,Math.floor((W-(G.openL+G.CW*0.2))/spc)-1),qx0=W-u*0.6,qy=depY+depH*0.48;
+  for(i=Math.min(qn,maxV)-1;i>=0;i--){
+    var qp=U.queue[i],qx=qx0-i*spc;
+    circ(qx,qy,u*0.36);g.fillStyle=COL.sube;g.fill();
+    g.setLineDash([3,3]);g.lineWidth=1.5;g.strokeStyle='#2c6f93';g.stroke();g.setLineDash([]);
+    drawFigure(qx,qy,u*0.29,qp,Math.PI);
+  }
+  if(qn>14){
+    var tx='Fila larga: '+qn;g.font='800 '+fs+'px '+FONT;var tw=g.measureText(tx).width+16;
+    rr(G.openL-G.CW/2+8+g.measureText('SALIDA  ▶').width+12,depY+depH*0.5-fs*0.8,tw,fs*1.6,fs*0.8);
+    g.fillStyle=COL.miss;g.fill();g.fillStyle='#fff';g.textAlign='left';
+    g.fillText(tx,G.openL-G.CW/2+16+g.measureText('SALIDA  ▶').width+12,depY+depH*0.5);
+  }
+  for(i=0;i<U.cabs.length;i++)drawCabin(U.cabs[i],G);
+  // quienes salen caminando hacia el andén de llegada
+  for(i=0;i<U.out.length;i++){
+    var o=U.out[i],a=1-o.t/0.6;
+    g.globalAlpha=clamp(a,0,1);
+    circ(o.x,o.y+o.t*u*2,u*0.4);g.fillStyle=COL.walk;g.fill();
+    drawFigure(o.x,o.y+o.t*u*2,u*0.34,o.p,Math.PI);
+    g.globalAlpha=1;
+  }
+  for(i=0;i<marks.length;i++){
+    var mk=marks[i],ma=clamp(1-mk.t/0.6,0,1),mr=u*0.18;
+    g.globalAlpha=ma;g.lineWidth=Math.max(3,u*0.08);g.lineCap='round';g.strokeStyle=COL.miss;
+    g.beginPath();g.moveTo(mk.sx-mr,mk.sy-mr);g.lineTo(mk.sx+mr,mk.sy+mr);g.moveTo(mk.sx+mr,mk.sy-mr);g.lineTo(mk.sx-mr,mk.sy+mr);g.stroke();
+    g.lineCap='butt';g.globalAlpha=1;
+  }
+  for(i=0;i<floats.length;i++){
+    var fl=floats[i];if(fl.sx===undefined)continue;
+    var fa=clamp(1.4-fl.t,0,1);
+    g.globalAlpha=fa;g.textAlign='center';g.textBaseline='middle';g.font='800 '+Math.round(u*0.32)+'px '+FONT;
+    var fx=clamp(fl.sx,70,W-70),fy=fl.sy-fl.t*u*0.6;
+    g.lineWidth=4;g.strokeStyle='#fff';g.strokeText(fl.txt,fx,fy);g.fillStyle='#1d2630';g.fillText(fl.txt,fx,fy);
+    g.globalAlpha=1;
+  }
+}
+function drawHudU(){
+  var fs=clamp(H/30,11,15),hh=fs+12,r=hh/2+2,y=8;
+  helpBtn.x=W-10-r;helpBtn.y=y+hh/2;helpBtn.r=r;
+  circ(helpBtn.x,helpBtn.y,r);g.fillStyle='rgba(24,33,43,0.9)';g.fill();
+  g.lineWidth=1.5;g.strokeStyle='rgba(255,255,255,0.7)';g.stroke();
+  g.fillStyle='#fff';g.textAlign='center';g.textBaseline='middle';
+  g.font='800 '+(fs+2)+'px '+FONT;g.fillText('?',helpBtn.x,helpBtn.y+1);
+  if(phase==='inicio')return;
+  var T=TURNOS[U.turno],tl=Math.max(0,Math.ceil(U.tleft)),mm=Math.floor(tl/60),ss=tl%60;
+  var label='Santo Domingo · '+T.n+' · '+mm+':'+(ss<10?'0':'')+ss;
+  g.font='700 '+fs+'px '+FONT;var lw=g.measureText(label).width+18;
+  rr(8,y,lw,hh,hh/2);g.fillStyle=U.tleft<15&&phase==='uplay'?'rgba(181,70,47,0.92)':'rgba(24,33,43,0.9)';g.fill();
+  g.fillStyle='#fff';g.textAlign='left';g.fillText(label,17,y+hh/2+0.5);
+  var a='↓ '+U.exits,b='↑ '+U.boarded,pts=String(score),bw=clamp(W*0.09,36,90);
+  var wa=g.measureText(a).width,wb=g.measureText(b).width,wp=g.measureText(pts).width;
+  var tw=12+wa+14+wb+14+bw+12+wp+12,x=helpBtn.x-r-8-tw,yy=y;
+  if(x<lw+16)yy+=hh+5;
+  rr(x,yy,tw,hh,hh/2);g.fillStyle='rgba(24,33,43,0.9)';g.fill();
+  var cy=yy+hh/2;x+=12;
+  g.fillStyle=COL.walk;g.fillText(a,x,cy);x+=wa+14;
+  g.fillStyle=COL.sube;g.fillText(b,x,cy);x+=wb+14;
+  satBar(x,cy,bw);x+=bw+12;g.fillStyle='#fff';g.fillText(pts,x,cy);
+}
+function drawToastU(){
+  if(phase!=='uplay'||TURNOS[U.turno].dur-U.tleft>6)return;
+  var txt=TURNOS[U.turno].hint,fs=clamp(H/28,11,15),hh=fs+14;
+  g.font='600 '+fs+'px '+FONT;
+  var tw=Math.min(W-24,g.measureText(txt).width+28),y=stripH-hh-6;
+  y=Math.max(y,8+fs+16);
+  rr((W-tw)/2,y,tw,hh,hh/2);g.fillStyle='rgba(24,33,43,0.92)';g.fill();
+  g.fillStyle='#fff';g.textAlign='center';g.textBaseline='middle';
+  fitText(txt,tw-24,fs,'600');g.fillText(txt,W/2,y+hh/2+0.5);
+}
+function drawU(){
+  g.fillStyle='#232e39';g.fillRect(0,0,W,H);
+  drawStrip();
+  var G=uGeo();
+  drawStationU(G);
+  drawToastU();
+  var b=clamp(Math.min(W/26,H/24),11,17);
+  if(phase==='inicio')drawMenu(b);
+  else if(phase==='uturno'&&U.res){
+    var R0=U.res;
+    card([
+      {t:'Turno de la '+R0.n.toLowerCase()+' terminado',size:b*1.3,weight:'800'},
+      {t:starStr(R0.stars,3),size:b*1.8,color:'#e8a020'},
+      {t:'Bajaron '+R0.exits+' · Subieron '+R0.boarded,size:b},
+      {t:R0.missed?R0.missed+(R0.missed===1?' no alcanzó a bajar':' no alcanzaron a bajar'):'Nadie se quedó sin bajar',size:b,color:R0.missed?COL.miss:'#1d6b45'},
+      {t:score+' puntos',size:b*1.3,weight:'800'},
+      {t:' ',size:b*0.3},
+      {t:'Toca para el turno de '+(TURNOS[U.turno+1].n==='Hora pico'?'la hora pico':'el '+TURNOS[U.turno+1].n.toLowerCase()),size:b*1.05,weight:'800',color:'#1d6b45'}
+    ]);
+  }else if(phase==='fin'||phase==='over'){
+    var tot=0;for(var i=0;i<U.turnStars.length;i++)tot+=U.turnStars[i];
+    card([
+      {t:phase==='fin'?'Fin de la jornada en Santo Domingo':'La estación se congestionó',size:b*1.3,weight:'800'},
+      {t:starStr(tot,9),size:b*1.3,color:'#e8a020'},
+      {t:score+' puntos',size:b*1.6,weight:'800'},
+      {t:newBest?'¡Nuevo récord!':'Récord: '+best+' puntos',size:b*1.05,weight:'700',color:newBest?'#1d6b45':'#5a6875'},
+      {t:'Mejor racha de cabinas perfectas: '+bestStreak,size:b*0.95,color:'#5a6875'},
+      {t:' ',size:b*0.3},
+      {t:'Toca para volver al menú',size:b*1.1,weight:'800',color:'#1d6b45'}
+    ]);
+  }
+  drawHudU();
+  if(rules)card([
+    {t:'Metrocable · Estación Santo Domingo',size:b*1.2,weight:'800'},
+    {t:'Las cabinas no se detienen: entran abajo, giran y salen arriba.',size:b*0.9},
+    {t:'Abajo (llegada): todos deben bajar antes de que la cabina pase.',size:b*0.9},
+    {t:'Quien va dormido (morado) solo baja si lo tocas.',size:b*0.9},
+    {t:'Arriba (salida): quien sube se queda en la puerta; llévalo adentro.',size:b*0.9},
+    {t:'Toca a un pasajero y luego una casilla libre, o arrástralo.',size:b*0.9},
+    {t:'Una fila de más de 14 personas baja la satisfacción.',size:b*0.9},
+    {t:'Toca para cerrar',size:b,weight:'800',color:'#1d6b45'}
+  ]);
+}
+
 var last=0;
 function frame(ts){
   var dt=Math.min(0.05,(ts-last)/1000||0);last=ts;
@@ -1333,7 +1812,7 @@ function frame(ts){
   requestAnimationFrame(frame);
 }
 // ganchos para pruebas automáticas
-window.__game={geom:function(){return {ox:ox,oy:oy,cell:cell};},start:start,genStation:genStation,mode:function(){return mode;},menu:function(){return menuBtns;},update:update,draw:draw,chainFor:chainFor,orderMove:orderMove,orderSit:orderSit,reach:reach,sel:function(){return sel;},trySit:trySit,stand:stand,seats:function(){return seats;},checkZone:checkZone,
+window.__game={geom:function(){return {ox:ox,oy:oy,cell:cell};},start:start,U:function(){return U;},__uStart:function(){uStartTurno();},uGeo:uGeo,cabPos:cabPos,uOrder:uOrder,uCellScreen:uCellScreen,genStation:genStation,mode:function(){return mode;},menu:function(){return menuBtns;},update:update,draw:draw,chainFor:chainFor,orderMove:orderMove,orderSit:orderSit,reach:reach,sel:function(){return sel;},trySit:trySit,stand:stand,seats:function(){return seats;},checkZone:checkZone,
   rules:function(v){rules=v;},setSat:function(v){sat=v;},state:function(){return {ST:ST,streak:streak,phase:phase,st:st,pieces:pieces,score:score,sat:sat,queues:queues};}};
 requestAnimationFrame(frame);
 })();

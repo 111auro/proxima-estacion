@@ -1,6 +1,6 @@
 // Cambia este número cada vez que subas una versión nueva del juego:
 // así los teléfonos que ya lo instalaron descargan la actualización.
-var CACHE = 'proxima-estacion-v6';
+var CACHE = 'proxima-estacion-v7';
 var FILES = ['./', 'index.html', 'manifest.webmanifest',
   'icons/icon-192.png', 'icons/icon-512.png', 'icons/icon-maskable-512.png', 'icons/apple-touch-icon.png'];
 
