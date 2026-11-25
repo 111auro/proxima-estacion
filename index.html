@@ -35,8 +35,23 @@ var VEH_CABLE={COLS:6,ROWS:2,DOOR_COLS:[2,3],PAIRS:[[2,4]],both:false,zones:fals
 var VEH_TRAM={COLS:19,ROWS:3,DOOR_COLS:[1,2,5,6,9,10,13,14,17,18],PAIRS:[[1,3],[5,7],[9,11],[13,15],[17,19]],both:true,zones:true,cabin:false,cap:0,
   tram:true,fuelles:[3,7,11,15],barras:[[0,0],[0,2],[4,0],[4,2],[8,0],[8,2],[12,0],[12,2],[16,0],[16,2]]};
 // Metroplús: bus articulado (dos cuerpos y una articulación), puertas solo del lado de las estaciones, muchas sillas
-var VEH_BUS={COLS:16,ROWS:2,DOOR_COLS:[1,2,5,6,11,12],PAIRS:[[1,3],[5,7],[11,13]],both:false,zones:false,cabin:false,cap:0,
-  bus:true,joint:8,barras:[[0,1],[4,1],[8,0],[10,1],[15,1]]};
+var VEH_BUS={COLS:20,ROWS:6,DOOR_COLS:[1,2,6,7,13,14],PAIRS:[[1,3],[6,8],[13,15]],both:false,zones:false,cabin:false,cap:0,
+  bus:true,joint:10,fuelles:[10],barras:[[0,3],[4,2],[9,3],[11,2],[16,3],[19,2]]};
+// En el bus las sillas son casillas del tablero: filas 0-1 arriba y 4-5 abajo (de a dos: ventana y pasillo)
+function isSeatC(x,y){
+  if(!VEH.bus)return false;
+  if(x===VEH.joint)return false;
+  if(y===0||y===1)return !isDoorCol(x);
+  return y===4||y===5;
+}
+function canStep(p,x,y,nx,ny){
+  if(!walkable(nx,ny))return false;
+  if(VEH.bus){
+    if(ny===y&&(isSeatC(x,y)||isSeatC(nx,ny)))return false;   // de silla a silla de lado no se pasa
+    if(p&&p.variant==='silla'&&isSeatC(nx,ny))return false;   // la silla de ruedas no se sienta
+  }
+  return true;
+}
 var VEH=VEH_METRO;
 function isFuelle(x){return !!(VEH.fuelles&&VEH.fuelles.indexOf(x)>=0);}
 function isBarra(x,y){if(!VEH.barras)return false;for(var i=0;i<VEH.barras.length;i++)if(VEH.barras[i][0]===x&&VEH.barras[i][1]===y)return true;return false;}
@@ -59,23 +74,23 @@ var ST=[
 var CAMPAIGN=ST;
 // Metroplús Línea 1, tramo Universidad de Antioquia → Parque Aranjuez. curva: el tramo que llega a esa parada tiene curvas
 var BUS=[
- {n:'Universidad de Antioquia',side:-1,t:13,b:[1,2,2,3,4,5,6,7,8,8,8],packs:4,bags:0,
+ {n:'Universidad de Antioquia',side:-1,t:14,b:[1,2,2,3,4,5,6,7,8,8,8],packs:4,bags:0,
   hint:'Siéntalos: en el bus se duermen. Despiértalos con un toque antes de su parada.'},
- {n:'Hospital',side:-1,t:10,b:[3,4,5,6,8,8],packs:0,bags:0,ev:'prioridad',
+ {n:'Hospital',side:-1,t:11,b:[3,4,5,6,8,8],packs:0,bags:0,ev:'prioridad',
   hint:'El número sobre quien duerme dice cuántas paradas le faltan.'},
- {n:'San Pedro',side:-1,t:10,b:[4,5,6,7,8,8],packs:1,bags:0,curva:true,
+ {n:'San Pedro',side:-1,t:11,b:[4,5,6,7,8,8],packs:1,bags:0,curva:true,
   hint:'Si lo despiertas antes de tiempo, protesta y se vuelve a dormir.'},
- {n:'Palos Verdes',side:-1,t:9,b:[5,6,7,8,8],packs:1,bags:0,
-  hint:'Silla con borde amarillo: esa persona baja en la próxima parada.'},
- {n:'Gardel',side:-1,t:9,b:[6,7,7,8,8],packs:1,bags:0,curva:true,
+ {n:'Palos Verdes',side:-1,t:10,b:[5,6,7,8,8],packs:1,bags:0,
+  hint:'Para salir de la ventana, la silla del pasillo debe quedar libre: pide «con permiso».'},
+ {n:'Gardel',side:-1,t:10,b:[6,7,7,8,8],packs:1,bags:0,curva:true,
   hint:'En las curvas, quien va de pie sin barra se corre hacia un lado.'},
- {n:'Manrique',side:-1,t:9,b:[7,8,8,8],packs:1,bags:0,curva:true,ev:'cambio',
+ {n:'Manrique',side:-1,t:10,b:[7,8,8,8],packs:1,bags:0,curva:true,ev:'cambio',
   hint:'Subida de Manrique: más gente y menos tiempo.'},
- {n:'Las Esmeraldas',side:-1,t:8,b:[8,8,8],packs:0,bags:0,
+ {n:'Las Esmeraldas',side:-1,t:9,b:[8,8,8],packs:0,bags:0,
   hint:'Ya casi llegamos: revisa quién sigue dormido.'},
- {n:'Berlín',side:-1,t:8,b:[8,8],packs:0,bags:0,curva:true,
+ {n:'Berlín',side:-1,t:9,b:[8,8],packs:0,bags:0,curva:true,
   hint:'En la última parada todos bajan, también los que duermen.'},
- {n:'Parque Aranjuez',side:-1,t:12,b:[],packs:0,bags:0,
+ {n:'Parque Aranjuez',side:-1,t:13,b:[],packs:0,bags:0,
   hint:'Fin del recorrido: todos bajan.'}
 ];
 // Tranvía de Ayacucho (Línea T): San Antonio → Oriente. loma/fren describen el tramo que llega a esa parada.
@@ -179,8 +194,8 @@ function resize(){
   RW=rw;rot=rh>rw&&coarse;   // en teléfono vertical el juego se dibuja girado: siempre apaisado
   if(rot){W=rh;H=rw;g.setTransform(0,dpr,-dpr,0,rw*dpr,0);}
   else{W=rw;H=rh;g.setTransform(dpr,0,0,dpr,0,0);}
-  stripH=Math.round((VEH.tram||VEH.bus)?clamp(H*0.3,56,230):clamp(H*0.19,56,150));
-  var bf=VEH.bus?0.8:0.5;
+  stripH=Math.round(VEH.tram?clamp(H*0.3,56,230):(VEH.bus?clamp(H*0.24,56,190):clamp(H*0.19,56,150)));
+  var bf=VEH.bus?0.14:0.5;
   // alto usado: fila de espera arriba (se monta sobre el andén de la franja) + sillas + 4 filas + sillas + andén abajo
   var vm=PLAT+bf+ROWS+bf+0.15;
   cell=Math.max(16,Math.floor(Math.min((H-stripH-8)/vm,(W-12)/(COLS+0.5))));
@@ -210,7 +225,7 @@ function clamp(v,a,b){return v<a?a:(v>b?b:v);}
 resize();
 function doorRow(side){return side>0?ROWS-1:0;}
 function isDoorCol(x){return DOOR_COLS.indexOf(x)>=0;}
-function walkable(x,y){return y>=0&&y<ROWS&&x>=0&&x<COLS&&!(isFuelle(x)&&y!==1);}
+function walkable(x,y){return y>=0&&y<ROWS&&x>=0&&x<COLS&&!(isFuelle(x)&&(VEH.bus?(y<2||y>3):y!==1));}
 function covers(p,x,y){
   if(p.x!==x)return false;
   return p.y===y||(p.type==='bag'&&p.y+1===y);
@@ -227,6 +242,7 @@ function canSit(p){return p.type!=='bag'&&p.variant!=='silla';}
 function inZone(x,y){return VEH.zones&&(x===0||x===COLS-1)&&(y===1||y===2);}
 function award(pts,cx,cy,txt){score+=pts;sat=Math.min(100,sat+3);floats.push({x:cx,y:cy,t:0,txt:txt});beep(1040,0.1);}
 function checkZone(p){
+  if(VEH.bus&&isSeatC(p.x,p.y)&&(p.variant==='baston'||p.variant==='ciego')&&!p.bonus){p.bonus=true;award(150,p.x+0.5,p.y,'+150 silla cedida');}
   if(p.variant==='silla'&&!p.bonus&&inZone(p.x,p.y)){p.bonus=true;award(150,p.x+0.5,p.y,'+150 espacio reservado');}
 }
 function trySit(p,dir){
@@ -249,7 +265,7 @@ function reach(p){
       var nx=c[0]+D[i][0],ny=c[1]+D[i][1];
       if(p.type==='bag'){
         if(nx<0||nx>=COLS||ny<0||ny+1>=ROWS||!walkable(nx,ny)||!walkable(nx,ny+1)||occ(nx,ny,p)||occ(nx,ny+1,p))continue;
-      }else if(!walkable(nx,ny)||occ(nx,ny,p))continue;
+      }else if(!canStep(p,c[0],c[1],nx,ny)||occ(nx,ny,p))continue;
       var k=ny*COLS+nx;if(prev[k]!==undefined)continue;
       prev[k]=c;q.push([nx,ny]);
     }
@@ -276,7 +292,7 @@ function reachCells(p,prev){
   return out;
 }
 function canCommand(p){
-  return p&&pieces.indexOf(p)>=0&&!busy(p)&&!(phase==='abierto'&&isExiter(p))&&
+  return p&&pieces.indexOf(p)>=0&&!busy(p)&&!p.asleep&&!(p.grumpy>0)&&!(phase==='abierto'&&isExiter(p))&&
     (phase==='tramo'||phase==='aprox'||phase==='abierto'||phase==='resultado');
 }
 function deny(x,y,p){marks.push({x:x,y:y,t:0});if(p)p.shake=0.18;vib(25);beep(220,0.08);}
@@ -315,6 +331,22 @@ function arrive(p){
   checkZone(p);
   if(p.sitOnArrive){var d=p.sitOnArrive;p.sitOnArrive=0;trySit(p,d);}
 }
+function wakePiece(p){
+  if(p.grumpy>0)return;
+  var X=p.x+0.5,Y=p.y;
+  if(p.dest===st&&(phase==='tramo'||phase==='aprox'||phase==='abierto')){
+    p.asleep=false;p.ready=true;p.sleepT=0;
+    floats.push({x:X,y:Y,t:0,txt:'¡Gracias!'});beep(760,0.06);vib(12);score+=20;return;
+  }
+  // quien va en la silla del pasillo le da permiso a su vecino de ventana que baja
+  var win=p.y===1?0:(p.y===4?5:-1),nb=win>=0?occ(p.x,win,null):null;
+  if(nb&&isExiter(nb)){
+    p.asleep=false;p.sleepT=-3;   // se queda despierto unos segundos para que lo muevas
+    floats.push({x:X,y:Y,t:0,txt:'Con permiso'});beep(640,0.05);vib(10);return;
+  }
+  p.asleep=false;p.grumpy=2;sat=Math.max(0,sat-1);
+  floats.push({x:X,y:Y,t:0,txt:'¡Todavía no!'});beep(260,0.08);vib(25);
+}
 function wakeSeat(seat){
   var p=seat.pass,X=seat.x+0.5,Y=seat.c?ROWS+0.2:-0.6;
   if(p.grumpy>0)return;
@@ -327,8 +359,9 @@ function wakeSeat(seat){
   }
 }
 function sleepTick(dt){
-  for(var i=0;i<seats.length;i++){
-    var p=seats[i].pass;if(!p)continue;
+  for(var i=0;i<pieces.length;i++){
+    var p=pieces[i];
+    if(!isSeatC(p.x,p.y)||busy(p)||(drag&&drag.p===p)){if(!(p.grumpy>0)){p.asleep=false;p.sleepT=0;}continue;}
     if(p.grumpy>0){p.grumpy-=dt;if(p.grumpy<=0){p.grumpy=0;p.asleep=true;}}
     else if(!p.asleep&&!p.ready){p.sleepT=(p.sleepT||0)+dt;if(p.sleepT>2.5)p.asleep=true;}
   }
@@ -339,7 +372,8 @@ function slideAllY(dir){
   var moved=[];
   for(var i=0;i<list.length;i++){
     var p=list[i],ny=p.y+dir;
-    if(walkable(p.x,ny)&&!occ(p.x,ny,p)){p.y=ny;moved.push(p);}
+    if(isSeatC(p.x,p.y))continue;
+    if(canStep(p,p.x,p.y,p.x,ny)&&!isSeatC(p.x,ny)&&!occ(p.x,ny,p)){p.y=ny;moved.push(p);}
   }
   return moved;
 }
@@ -361,10 +395,10 @@ function chainFor(p,dx,dy){
     }
     var fx=cur.x+dx,fy;
     if(cur.type==='bag')fy=dy>0?cur.y+2:cur.y-1;else fy=cur.y+dy;
-    if(!walkable(fx,fy))return null;
+    if(!canStep(cur,cur.x,cur.y,fx,fy))return null;
     var q=occ(fx,fy,cur);
     if(!q)return ch;
-    if(ch.length>=3||q.type==='pack'||busy(q))return null;
+    if(ch.length>=3||q.type==='pack'||busy(q)||isSeatC(q.x,q.y)||q.asleep)return null;
     ch.push(q);cur=q;
   }
 }
@@ -380,7 +414,7 @@ function pathToDoor(p,dr){
     }
     for(var i=0;i<4;i++){
       var nx=x+D[i][0],ny=y+D[i][1];
-      if(!walkable(nx,ny)||prev[k(nx,ny)]!==undefined||occ(nx,ny,p))continue;
+      if(!canStep(p,x,y,nx,ny)||prev[k(nx,ny)]!==undefined||occ(nx,ny,p))continue;
       prev[k(nx,ny)]=c;q.push([nx,ny]);
     }
   }
@@ -451,10 +485,11 @@ function makeQueues(si){
 }
 function initSeats(){
   seats=[];
+  if(VEH.bus)return;
   for(var c=0;c<2;c++)for(var x=0;x<COLS;x++){
     if(isFuelle(x)||(isDoorCol(x)&&(c===0||VEH.both)))continue;
     var d=null;
-    if(!VEH.cabin&&Math.random()<(VEH.tram?0.25:(VEH.bus?0.15:0.5))){d=look({type:'std'});d.variant=Math.random()<0.25?'bolso':'';}
+    if(!VEH.cabin&&Math.random()<(VEH.tram?0.25:0.5)){d=look({type:'std'});d.variant=Math.random()<0.25?'bolso':'';}
     seats.push({x:x,c:c,decor:d,pass:null});
   }
 }
@@ -506,6 +541,7 @@ function walkTick(){
       p.inward=0;continue;
     }
     if(!isExiter(p))continue;
+    if(VEH.bus&&(p.asleep||p.grumpy>0))continue;
     if(p.y===dr&&doorOk(p.x)){
       pieces.splice(pieces.indexOf(p),1);
       leaving.push({p:p,t:0,side:s.side});
@@ -688,6 +724,7 @@ cv.addEventListener('pointerdown',function(e){
   }else{sel=null;return;}
   if(drag)return;
   if(!p||busy(p))return;
+  if(VEH.bus&&(p.asleep||p.grumpy>0)){wakePiece(p);return;}
   if(phase==='abierto'&&isExiter(p))return;
   drag={p:p,gx:c[0]-p.x,gy:c[1]-p.y,sx:c[0],sy:c[1],resx:0,resy:0,id:e.pointerId,moved:false,far:false};
   try{cv.setPointerCapture(e.pointerId);}catch(err){}
@@ -1101,6 +1138,8 @@ function drawStrip(){
 }
 
 function pieceColor(p){
+  if(VEH.bus&&p.grumpy>0)return '#d9a3a3';
+  if(VEH.bus&&p.asleep)return '#9d8fd0';
   if(isExiter(p)&&(phase==='tramo'||phase==='aprox'||phase==='abierto'))return p.walking?COL.walk:COL.baja;
   if(p.born&&time-p.born<1.2)return COL.sube;
   return COL.stay;
@@ -1157,6 +1196,7 @@ function drawFigure(cx,cy,R,p,ang){
   g.restore();
 }
 function facing(p){
+  if(VEH.bus&&isSeatC(p.x,p.y))return Math.PI/2;
   if(isExiter(p)&&(phase==='tramo'||phase==='aprox'||phase==='abierto'))return ST[st].side>0?Math.PI:0;
   return p.face||0;
 }
@@ -1196,8 +1236,10 @@ function drawPiece(p,alpha,shift){
       g.lineWidth=2.5;g.strokeStyle='rgba(244,196,48,'+(0.4+0.35*Math.sin(time*6))+')';
       circ(cx,cy,B+3+Math.sin(time*6));g.stroke();
     }
+    if(VEH.bus&&isSeatC(p.x,p.y)&&!p.asleep&&!(p.grumpy>0)&&!isExiter(p)){}
     if((VEH.tram||VEH.bus)&&isBarra(p.x,p.y)){g.lineWidth=2.5;g.strokeStyle='#f4c430';circ(cx,cy,B+1.5);g.stroke();}
     drawFigure(cx,cy,R,p,facing(p));
+    if(VEH.bus)drawSleepBadgeP(p,cx,cy,B);
     if(exiting){
       var s=ST[st].side,a2=cell*0.11,ty=cy+s*(B+a2*0.2);
       g.fillStyle='#1d2630';g.beginPath();
@@ -1258,11 +1300,18 @@ function drawCar(){
   for(var i=1;i<COLS;i++){g.beginPath();g.moveTo(ox+i*cell,oy);g.lineTo(ox+i*cell,oy+chh);g.stroke();}
   for(i=1;i<ROWS;i++){g.beginPath();g.moveTo(ox,oy+i*cell);g.lineTo(ox+cw,oy+i*cell);g.stroke();}
   if(VEH.bus){
+    // sillas de a dos con espaldar hacia atrás (el bus avanza hacia la derecha)
+    for(var sy=0;sy<ROWS;sy++)for(var sx=0;sx<COLS;sx++){
+      if(!isSeatC(sx,sy))continue;
+      var SX=ox+sx*cell,SY=oy+sy*cell;
+      rr(SX+cell*0.08,SY+cell*0.08,cell*0.84,cell*0.84,cell*0.16);g.fillStyle='#5b7fa0';g.fill();
+      rr(SX+cell*0.06,SY+cell*0.08,cell*0.18,cell*0.84,cell*0.08);g.fillStyle='#3f5f7d';g.fill();
+    }
     var jx=ox+VEH.joint*cell;
-    g.fillStyle='rgba(74,85,96,0.25)';g.fillRect(jx,oy,cell,chh);
-    g.strokeStyle='rgba(60,70,80,0.35)';g.lineWidth=1;
-    for(var jz=1;jz<6;jz++){g.beginPath();g.moveTo(jx+cell*jz/6,oy);g.lineTo(jx+cell*jz/6,oy+chh);g.stroke();}
-    circ(jx+cell/2,oy+chh/2,cell*0.42);g.lineWidth=2;g.strokeStyle='rgba(60,70,80,0.4)';g.stroke();
+    g.fillStyle='#4a5560';g.fillRect(jx,oy-band,cell,2*cell+band);g.fillRect(jx,oy+4*cell,cell,2*cell+band);
+    g.fillStyle='#b9c2c9';g.fillRect(jx,oy+2*cell,cell,2*cell);
+    g.strokeStyle='rgba(60,70,80,0.45)';g.lineWidth=1;
+    for(var jz=1;jz<6;jz++){g.beginPath();g.moveTo(jx+cell*jz/6,oy+2*cell);g.lineTo(jx+cell*jz/6,oy+4*cell);g.stroke();}
     for(i=0;i<VEH.barras.length;i++){
       var bbx=ox+(VEH.barras[i][0]+0.5)*cell,bby=oy+(VEH.barras[i][1]+0.5)*cell;
       circ(bbx,bby,cell*0.13);g.fillStyle='#f4c430';g.fill();g.lineWidth=2;g.strokeStyle='#8a6d10';g.stroke();
@@ -1290,7 +1339,7 @@ function drawCar(){
     }
   }
   // franjas de sillas (decorativas) y umbrales de puerta
-  for(var x=0;x<COLS;x++){
+  for(var x=0;!VEH.bus&&x<COLS;x++){
     for(var c=0;c<2;c++){
       var X=ox+x*cell,Y=c?oy+chh:oy-band;
       if(isFuelle(x))continue;
@@ -1453,6 +1502,23 @@ function drawToast(){
   rr((W-tw)/2,y,tw,hh,hh/2);g.fillStyle='rgba(24,33,43,0.92)';g.fill();
   g.fillStyle='#fff';g.textAlign='center';g.textBaseline='middle';
   fitText(txt,tw-24,fs,'600');g.fillText(txt,W/2,y+hh/2+0.5);
+}
+function drawSleepBadgeP(p,cx,cy,B){
+  if(!isSeatC(p.x,p.y)&&!p.ready)return;
+  var rem=p.dest<99?p.dest-st:-1,br=Math.max(6,cell*0.2),bx=cx+B*0.72,by=cy-B*0.72;
+  var due=rem===0&&(phase==='tramo'||phase==='aprox'||phase==='abierto');
+  if(p.asleep&&due){g.lineWidth=3;g.strokeStyle='rgba(244,196,48,'+(0.55+0.45*Math.sin(time*7))+')';circ(cx,cy,B+3);g.stroke();}
+  if(p.asleep){
+    g.fillStyle='#3b2d63';g.font='800 '+Math.round(br*1.3)+'px '+FONT;g.textAlign='center';g.textBaseline='middle';
+    g.fillText('z',cx-B*0.75,cy-B*0.6+Math.sin(time*3)*1.5);
+  }
+  var col,txt;
+  if(p.grumpy>0){col=COL.miss;txt='!';}
+  else if(p.ready){col='#2fae62';txt='✓';}
+  else if(p.asleep&&rem>=0){col=due?'#e8a020':'#17384b';txt=rem===0?'↓':String(rem);}
+  else return;
+  circ(bx,by,br);g.fillStyle=col;g.fill();g.lineWidth=1.5;g.strokeStyle='#fff';g.stroke();
+  g.fillStyle='#fff';g.font='800 '+Math.round(br*1.2)+'px '+FONT;g.textAlign='center';g.textBaseline='middle';g.fillText(txt,bx,by+0.5);
 }
 function drawSleepBadge(p,X,Y,c){
   var rem=p.dest<99?p.dest-st:-1,br=Math.max(7,cell*0.17),bx=X+cell*0.82,by=c?Y+band-br*0.9:Y+br*0.9;
@@ -2104,7 +2170,7 @@ function frame(ts){
   requestAnimationFrame(frame);
 }
 // ganchos para pruebas automáticas
-window.__game={geom:function(){return {ox:ox,oy:oy,cell:cell};},walkable:walkable,wakeSeat:wakeSeat,seatsAll:function(){return seats;},start:start,res:function(){return res;},U:function(){return U;},__uStart:function(){uStartTurno();},uGeo:uGeo,cabPos:cabPos,uOrder:uOrder,uCellScreen:uCellScreen,genStation:genStation,mode:function(){return mode;},menu:function(){return menuBtns;},update:update,draw:draw,chainFor:chainFor,orderMove:orderMove,orderSit:orderSit,reach:reach,sel:function(){return sel;},trySit:trySit,stand:stand,seats:function(){return seats;},checkZone:checkZone,
+window.__game={geom:function(){return {ox:ox,oy:oy,cell:cell};},walkable:walkable,wakeSeat:wakeSeat,wakePiece:wakePiece,isSeatC:isSeatC,seatsAll:function(){return seats;},start:start,res:function(){return res;},U:function(){return U;},__uStart:function(){uStartTurno();},uGeo:uGeo,cabPos:cabPos,uOrder:uOrder,uCellScreen:uCellScreen,genStation:genStation,mode:function(){return mode;},menu:function(){return menuBtns;},update:update,draw:draw,chainFor:chainFor,orderMove:orderMove,orderSit:orderSit,reach:reach,sel:function(){return sel;},trySit:trySit,stand:stand,seats:function(){return seats;},checkZone:checkZone,
   rules:function(v){rules=v;},setSat:function(v){sat=v;},state:function(){return {ST:ST,streak:streak,phase:phase,st:st,pieces:pieces,score:score,sat:sat,queues:queues};}};
 requestAnimationFrame(frame);
 })();
