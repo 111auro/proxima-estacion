@@ -32,7 +32,11 @@ var COLS=14,ROWS=4,DOOR_COLS=[1,2,6,7,11,12],PAIRS=[[1,3],[6,8],[11,13]];
 // Vehículos: el vagón del metro y la cabina del Metrocable (10 personas, una sola puerta)
 var VEH_METRO={COLS:14,ROWS:4,DOOR_COLS:[1,2,6,7,11,12],PAIRS:[[1,3],[6,8],[11,13]],both:true,zones:true,cabin:false,cap:0};
 var VEH_CABLE={COLS:6,ROWS:2,DOOR_COLS:[2,3],PAIRS:[[2,4]],both:false,zones:false,cabin:true,cap:10};
+var VEH_TRAM={COLS:19,ROWS:3,DOOR_COLS:[1,2,5,6,9,10,13,14,17,18],PAIRS:[[1,3],[5,7],[9,11],[13,15],[17,19]],both:true,zones:true,cabin:false,cap:0,
+  tram:true,fuelles:[3,7,11,15],barras:[[0,0],[0,2],[4,0],[4,2],[8,0],[8,2],[12,0],[12,2],[16,0],[16,2]]};
 var VEH=VEH_METRO;
+function isFuelle(x){return !!(VEH.fuelles&&VEH.fuelles.indexOf(x)>=0);}
+function isBarra(x,y){if(!VEH.barras)return false;for(var i=0;i<VEH.barras.length;i++)if(VEH.barras[i][0]===x&&VEH.barras[i][1]===y)return true;return false;}
 function setVehicle(v){VEH=v;COLS=v.COLS;ROWS=v.ROWS;DOOR_COLS=v.DOOR_COLS;PAIRS=v.PAIRS;}
 var D=[[0,1],[0,-1],[1,0],[-1,0]];
 
@@ -50,6 +54,30 @@ var ST=[
   hint:'Bonificación: cede la silla al adulto mayor y lleva la silla de ruedas a su espacio.',ev:'prioridad'}
 ];
 var CAMPAIGN=ST;
+// Tranvía de Ayacucho (Línea T): San Antonio → Oriente. loma/fren describen el tramo que llega a esa parada.
+var TRAM=[
+ {n:'San Antonio',side:-1,t:17,b:[1,2,2,3,4,5,6,7,8,8],packs:1,bags:0,
+  hint:'Tranvía articulado: entre módulo y módulo (el fuelle) solo cabe una persona.'},
+ {n:'San José',side:1,t:16,b:[2,3,4,5,6,8,8],packs:1,bags:0,fren:true,
+  hint:'Quien está en una barra amarilla va agarrado y no se mueve con los frenazos.'},
+ {n:'Pabellón del Agua EPM',side:-1,t:16,b:[3,4,5,7,8,8],packs:1,bags:0,
+  hint:'Cada módulo tiene su puerta: lleva a cada quien al módulo correcto a tiempo.'},
+ {n:'Bicentenario',side:1,t:15,b:[4,5,6,7,8,8],packs:1,bags:0,loma:true,
+  hint:'En la subida, quien no va agarrado se desliza hacia la parte de atrás.'},
+ {n:'Buenos Aires',side:-1,t:15,b:[5,6,7,8,8,99],packs:1,bags:1,loma:true,fren:true,
+  hint:'La maleta no cabe por los fuelles: déjala en el módulo de su puerta.'},
+ {n:'Miraflores',side:1,t:16,b:[6,7,8,8,8,8],packs:2,bags:0,loma:true,ev:'oleada',
+  hint:'Transbordo con el Metrocable Línea M: llega una oleada de pasajeros.'},
+ {n:'Loyola',side:-1,t:14,b:[7,8,8,8],packs:1,bags:0,fren:true,
+  hint:'Paradas cortas: piensa antes de que abran las puertas.'},
+ {n:'Alejandro Echavarría',side:1,t:14,b:[8,8,8,8],packs:1,bags:0,loma:true,ev:'prioridad',
+  hint:'Cede la silla a quien más la necesita.'},
+ {n:'Oriente',side:-1,t:14,b:[],packs:0,bags:0,
+  hint:'Llegada a Oriente: todos bajan, muchos siguen al Metrocable Línea H.'}
+];
+var TRAM_LM={'San José':['paraninfo','Paraninfo · Parque San Ignacio'],'Pabellón del Agua EPM':['pabellon','Pabellón del Agua EPM'],
+  'Buenos Aires':['sagrado','Iglesia del Sagrado Corazón']};
+var tramLT=0,tramFD=false,tramShake=0,tramSliding=0;
 // Metrocable Línea K, ida y vuelta: Acevedo – Andalucía – Popular – Santo Domingo
 var CABLE=[
  {n:'Acevedo',side:-1,t:14,b:[1,1,2,2,3,3,3,3,3],packs:1,bags:0,
@@ -127,7 +155,7 @@ function resize(){
   RW=rw;rot=rh>rw&&coarse;   // en teléfono vertical el juego se dibuja girado: siempre apaisado
   if(rot){W=rh;H=rw;g.setTransform(0,dpr,-dpr,0,rw*dpr,0);}
   else{W=rw;H=rh;g.setTransform(dpr,0,0,dpr,0,0);}
-  stripH=Math.round(clamp(H*0.19,56,150));
+  stripH=Math.round(VEH.tram?clamp(H*0.3,56,230):clamp(H*0.19,56,150));
   // alto usado: fila de espera arriba (se monta sobre el andén de la franja) + sillas + 4 filas + sillas + andén abajo
   var vm=PLAT+0.5+ROWS+0.5+0.15;
   cell=Math.max(16,Math.floor(Math.min((H-stripH-8)/vm,(W-12)/(COLS+0.5))));
@@ -157,7 +185,7 @@ function clamp(v,a,b){return v<a?a:(v>b?b:v);}
 resize();
 function doorRow(side){return side>0?ROWS-1:0;}
 function isDoorCol(x){return DOOR_COLS.indexOf(x)>=0;}
-function walkable(x,y){return y>=0&&y<ROWS&&x>=0&&x<COLS;}
+function walkable(x,y){return y>=0&&y<ROWS&&x>=0&&x<COLS&&!(isFuelle(x)&&y!==1);}
 function covers(p,x,y){
   if(p.x!==x)return false;
   return p.y===y||(p.type==='bag'&&p.y+1===y);
@@ -195,7 +223,7 @@ function reach(p){
     for(var i=0;i<4;i++){
       var nx=c[0]+D[i][0],ny=c[1]+D[i][1];
       if(p.type==='bag'){
-        if(nx<0||nx>=COLS||ny<0||ny+1>=ROWS||occ(nx,ny,p)||occ(nx,ny+1,p))continue;
+        if(nx<0||nx>=COLS||ny<0||ny+1>=ROWS||!walkable(nx,ny)||!walkable(nx,ny+1)||occ(nx,ny,p)||occ(nx,ny+1,p))continue;
       }else if(!walkable(nx,ny)||occ(nx,ny,p))continue;
       var k=ny*COLS+nx;if(prev[k]!==undefined)continue;
       prev[k]=c;q.push([nx,ny]);
@@ -358,9 +386,9 @@ function makeQueues(si){
   list=shuffle(list);
   for(i=0;i<list.length;i++)queues[cols[i%cols.length]].push(list[i]);
   if(s.ev==='oleada'){
-    var extra=Math.max(0,Math.min(5,free-list.length-4)),oc=cols[0];
+    var extra=Math.max(0,Math.min(VEH.tram?3:5,free-list.length-4)),oc=cols[0];
     for(i=0;i<extra;i++){
-      var o=look({dest:mode==='pico'?si+1+Math.floor(Math.random()*3):99,type:'std'});
+      var o=look({dest:mode==='pico'?si+1+Math.floor(Math.random()*3):(mode==='tranvia'?ST.length-1:99),type:'std'});
       queues[oc].push(o);list.push(o);
     }
   }
@@ -371,18 +399,19 @@ function makeQueues(si){
 function initSeats(){
   seats=[];
   for(var c=0;c<2;c++)for(var x=0;x<COLS;x++){
-    if(isDoorCol(x)&&(c===0||VEH.both))continue;
+    if(isFuelle(x)||(isDoorCol(x)&&(c===0||VEH.both)))continue;
     var d=null;
-    if(!VEH.cabin&&Math.random()<0.5){d=look({type:'std'});d.variant=Math.random()<0.25?'bolso':'';}
+    if(!VEH.cabin&&Math.random()<(VEH.tram?0.25:0.5)){d=look({type:'std'});d.variant=Math.random()<0.25?'bolso':'';}
     seats.push({x:x,c:c,decor:d,pass:null});
   }
 }
 initSeats();
 function start(m){
   if(m==='cable'){startU();return;}
-  mode=m==='pico'||m==='cable'?m:'recorrido';
-  setVehicle(mode==='cable'?VEH_CABLE:VEH_METRO);
-  ST=mode==='pico'?[genStation(0)]:(mode==='cable'?CABLE:CAMPAIGN);
+  mode=m==='pico'||m==='cable'||m==='tranvia'?m:'recorrido';
+  setVehicle(mode==='cable'?VEH_CABLE:(mode==='tranvia'?VEH_TRAM:VEH_METRO));
+  ST=mode==='pico'?[genStation(0)]:(mode==='cable'?CABLE:(mode==='tranvia'?TRAM:CAMPAIGN));
+  tramLT=0;tramFD=false;tramShake=0;tramSliding=0;
   streak=0;bestStreak=0;newBest=false;best=lsGet('pe_best_pico');
   initSeats();floats=[];marks=[];sel=null;pieces=[];leaving=[];score=0;sat=100;starsTotal=0;res=null;drag=null;st=0;
   phase='aprox';pt=0;resize();oy=oyA;makeQueues(0);
@@ -397,6 +426,17 @@ function changePlans(){
   }
   if(sel&&isExiter(sel))sel=null;
   if(drag&&isExiter(drag.p))drag=null;
+}
+// Quien va de pie y no está en una barra se desliza una casilla (dir -1: hacia atrás en la loma; +1: hacia adelante al frenar)
+function slideAll(dir){
+  var list=pieces.filter(function(p){return p.type!=='bag'&&!busy(p)&&!(drag&&drag.p===p)&&!isBarra(p.x,p.y);});
+  list.sort(function(a,b){return dir<0?a.x-b.x:b.x-a.x;});
+  var moved=[];
+  for(var i=0;i<list.length;i++){
+    var p=list[i],nx=p.x+dir;
+    if(walkable(nx,p.y)&&!occ(nx,p.y,p)){p.x=nx;moved.push(p);}
+  }
+  return moved.length?moved:0;
 }
 function exitersLeft(){return everyone().filter(isExiter).length;}
 function queueLeft(){var n=0;for(var c in queues)n+=queues[c].length;return n;}
@@ -466,7 +506,7 @@ function closeDoors(early){
   if(stars===3){
     streak++;bestStreak=Math.max(bestStreak,streak);
     if(streak>=2){var sb=50*streak;bonus+=sb;score+=sb;}
-    if(mode==='pico')sat=Math.min(100,sat+4);
+    if(mode==='pico'||mode==='tranvia')sat=Math.min(100,sat+4);
   }else streak=0;
   res={stars:stars,missed:missed,left:left,bonus:bonus,clear:clear,streak:streak,
        exited:exited,exitTotal:exitTotal,boarded:boarded,boardTotal:boardTotal};
@@ -502,10 +542,19 @@ function update(dt){
     if(pt>2.8){
       if(sat<=0){phase='over';if(mode==='pico'&&score>best){best=score;newBest=true;lsSet('pe_best_pico',best);lsSet('pe_best_pico_st',st+1);}}
       else if(st===ST.length-1)phase='fin';
-      else{st++;phase='tramo';}
+      else{st++;phase='tramo';tramLT=0;tramFD=false;}
       pt=0;
     }
   }else if(phase==='tramo'){
+    if(VEH.tram){
+      var ts=ST[st];tramSliding=Math.max(0,tramSliding-dt);
+      if(ts.loma&&pt>1.6&&pt<6.6){tramLT+=dt;if(tramLT>=1.6){tramLT=0;if(slideAll(-1))tramSliding=0.9;}}
+      if(ts.fren&&!tramFD&&pt>=4.4){
+        tramFD=true;tramShake=0.35;vib(40);beep(180,0.18);
+        var moved=slideAll(1)||[];
+        for(var mi=0;mi<moved.length;mi++){sat=Math.max(0,sat-1);if(mi<3)floats.push({x:moved[mi].x+0.5,y:moved[mi].y,t:0,txt:'¡Uy!'});}
+      }
+    }
     if(pt>=(VEH.cabin?5:7)){phase='aprox';pt=0;makeQueues(st);}
   }
   if(sel&&!canCommand(sel))sel=null;
@@ -687,7 +736,7 @@ var LANDMARKS=[
   {k:'biblioteca',n:'Parque Biblioteca España'},
   {k:'nutibara',n:'Cerro Nutibara'}
 ];
-function lmWidth(k,h){return {coltejer:0.3,palacio:1.05,epm:0.9,catedral:0.8,biblioteca:1.5,nutibara:1.4}[k]*h;}
+function lmWidth(k,h){return {coltejer:0.3,palacio:1.05,epm:0.9,catedral:0.8,biblioteca:1.5,nutibara:1.4,paraninfo:1.3,pabellon:1.4,sagrado:0.7}[k]*h;}
 function drawLandmark(k,x,base,h){
   var w=lmWidth(k,h),i,j;
   g.save();
@@ -750,6 +799,28 @@ function drawLandmark(k,x,base,h){
       g.beginPath();g.moveTo(cx2,cy2);g.lineTo(cx2,cy2+h*0.05);g.stroke();
       g.fillStyle='#d64545';g.fillRect(cx2-h*0.045,cy2+h*0.05,h*0.09,h*0.07);
     }
+  }else if(k==='paraninfo'){
+    var ph2=h*0.5;
+    g.fillStyle='#e8dcc4';g.fillRect(x,base-ph2,w,ph2);
+    g.fillStyle='#d6c7a8';
+    for(i=0;i<8;i++)g.fillRect(x+w*(0.08+i*0.115),base-ph2*0.85,w*0.04,ph2*0.85);
+    g.fillStyle='#cdbb98';g.fillRect(x-2,base-ph2-h*0.04,w+4,h*0.04);
+    g.beginPath();g.moveTo(x+w*0.3,base-ph2-h*0.04);g.lineTo(x+w*0.5,base-h*0.72);g.lineTo(x+w*0.7,base-ph2-h*0.04);g.fillStyle='#e8dcc4';g.fill();
+    g.fillStyle='#e8dcc4';g.fillRect(x+w*0.44,base-h*0.9,w*0.12,h*0.2);
+    g.beginPath();g.arc(x+w*0.5,base-h*0.9,w*0.06,Math.PI,0);g.fillStyle='#b5a17a';g.fill();
+  }else if(k==='pabellon'){
+    var ph3=h*0.42;
+    g.fillStyle='#7fb7c9';g.fillRect(x,base-ph3,w,ph3);
+    g.fillStyle='rgba(255,255,255,0.35)';for(i=1;i<10;i++)g.fillRect(x+w*i/10,base-ph3,1,ph3);
+    g.fillStyle='#e9eef1';g.fillRect(x-w*0.05,base-ph3-h*0.05,w*1.1,h*0.05);
+    g.fillStyle='#3d8fbf';g.fillRect(x-w*0.05,base-h*0.06,w*1.1,h*0.06);
+  }else if(k==='sagrado'){
+    g.fillStyle='#efe7da';g.fillRect(x,base-h*0.45,w,h*0.45);
+    g.beginPath();g.moveTo(x,base-h*0.45);g.lineTo(x+w/2,base-h*0.6);g.lineTo(x+w,base-h*0.45);g.fill();
+    g.fillRect(x+w*0.36,base-h*0.78,w*0.28,h*0.33);
+    g.beginPath();g.moveTo(x+w*0.36,base-h*0.78);g.lineTo(x+w*0.5,base-h);g.lineTo(x+w*0.64,base-h*0.78);g.fillStyle='#8a5a44';g.fill();
+    g.fillStyle='rgba(60,40,30,0.5)';g.fillRect(x+w*0.42,base-h*0.2,w*0.16,h*0.2);
+    circ(x+w/2,base-h*0.36,w*0.08);g.fill();
   }else if(k==='nutibara'){
     g.fillStyle='#6f9a76';
     g.beginPath();g.moveTo(x,base);g.quadraticCurveTo(x+w*0.5,base-h*0.75,x+w,base);g.fill();
@@ -779,6 +850,63 @@ function drawLandmarks(labels){
       rr(lx,ly,tw,fs+6,(fs+6)/2);g.fillStyle='rgba(24,33,43,0.72)';g.fill();
       g.fillStyle='#fff';g.textAlign='center';g.textBaseline='middle';g.fillText(L.n,lx+tw/2,ly+(fs+6)/2+0.5);
     }
+  }
+}
+function drawStreetScene(){
+  var off=bgx*0.9,i,fw=Math.max(58,stripH*1.05),n=Math.ceil(W/fw)+2,base=stripH*0.84;
+  var cols=['#e9c46a','#f4a261','#e76f51','#2a9d8f','#8ab17d','#f2e8cf','#d4a5a5','#a8dadc','#ffb4a2','#cdb4db'];
+  var i0=Math.floor(off/fw);
+  for(i=0;i<n;i++){
+    var idx=i0+i,x=idx*fw-off,m=((idx%997)+997)%997;
+    var h=stripH*(0.5+(m*37%5)*0.07),top=base-h;
+    g.fillStyle=cols[m%cols.length];g.fillRect(x,top,fw-2,h);
+    g.fillStyle='rgba(0,0,0,0.12)';g.fillRect(x,top,fw-2,3);
+    var fl=Math.max(1,Math.floor(h/(stripH*0.2)));
+    for(var f=0;f<fl;f++){
+      var wy=top+6+f*stripH*0.2;if(wy>base-stripH*0.16)break;
+      for(var w=0;w<3;w++){
+        g.fillStyle='rgba(40,50,60,0.55)';g.fillRect(x+5+w*(fw-12)/3,wy,(fw-12)/3-5,stripH*0.09);
+      }
+      g.fillStyle='rgba(90,60,40,0.7)';g.fillRect(x+3,wy+stripH*0.1,fw-8,2);
+    }
+    g.fillStyle='rgba(60,40,30,0.6)';g.fillRect(x+fw*0.4,base-stripH*0.14,fw*0.18,stripH*0.14);
+  }
+  // corredor verde: jardín, acera y árboles
+  g.fillStyle='#9aa0a6';g.fillRect(0,base,W,stripH-base);
+  g.fillStyle='#6f9a5a';g.fillRect(0,base,W,stripH*0.04);
+  var ts=Math.max(120,W*0.17);
+  for(i=0;i<Math.ceil(W/ts)+2;i++){
+    var tx=((i*ts-bgx*1.05)%(W+ts)+(W+ts))%(W+ts)-ts/2;
+    g.fillStyle='#6b4f3a';g.fillRect(tx-2,base-stripH*0.2,4,stripH*0.2);
+    g.fillStyle='#4f8a4a';circ(tx,base-stripH*0.27,stripH*0.13);g.fill();circ(tx+stripH*0.08,base-stripH*0.22,stripH*0.09);g.fill();
+  }
+  // postes y cable de la catenaria
+  var ps=Math.max(150,W*0.2),cy=stripH*0.18;
+  g.strokeStyle='#30363d';g.lineWidth=1.2;g.beginPath();g.moveTo(0,cy);g.lineTo(W,cy);g.stroke();
+  for(i=0;i<Math.ceil(W/ps)+2;i++){
+    var px2=((i*ps-bgx*1.15)%(W+ps)+(W+ps))%(W+ps)-ps/2;
+    g.fillStyle='#4a525a';g.fillRect(px2-1.5,cy-4,3,stripH-cy);
+  }
+  // peatones y motos en la acera
+  for(i=0;i<8;i++){
+    var sp=20+(i*13)%25,xx=((i*157+time*sp*(i%2?1:-1)-bgx*1.05)%(W+60)+(W+60))%(W+60)-30;
+    if(i===3||i===6){
+      g.fillStyle='#2b2b2b';circ(xx-5,stripH-3,3);g.fill();circ(xx+5,stripH-3,3);g.fill();
+      g.fillStyle='#c0392b';g.fillRect(xx-6,stripH-9,12,4);g.fillStyle='#333';circ(xx,stripH-12,3);g.fill();
+    }else{
+      g.fillStyle=CLOTH[i%CLOTH.length];g.fillRect(xx-2.5,stripH-12,5,9);
+      g.fillStyle=SKIN[i%SKIN.length];circ(xx,stripH-14,2.6);g.fill();
+    }
+  }
+  // íconos del recorrido al acercarse a su parada
+  var L=TRAM_LM[ST[st]&&ST[st].n];
+  if(L&&phase==='tramo'){
+    var lh=stripH*0.82,lx=W*1.05-pt*W*0.16;
+    drawLandmark(L[0],lx,base,lh);
+    var lw=lmWidth(L[0],lh),fs=Math.max(8,Math.min(11,stripH*0.13));
+    g.font='700 '+fs+'px '+FONT;var tw=g.measureText(L[1]).width+10,llx=clamp(lx+lw/2-tw/2,4,W-tw-4),lly=Math.max(40,base-lh-fs-4);
+    rr(llx,lly,tw,fs+6,(fs+6)/2);g.fillStyle='rgba(24,33,43,0.75)';g.fill();
+    g.fillStyle='#fff';g.textAlign='center';g.textBaseline='middle';g.fillText(L[1],llx+tw/2,lly+(fs+6)/2+0.5);
   }
 }
 function drawCableScene(){
@@ -839,14 +967,14 @@ function drawStrip(){
     }
     g.lineTo(W,stripH);g.closePath();g.fillStyle=L[1];g.fill();
   }
-  var span=W+240,nb=VEH.cabin?0:Math.ceil(W/75);
+  var span=W+240,nb=(VEH.cabin||VEH.tram)?0:Math.ceil(W/75);
   for(var i=0;i<nb;i++){
     var bx=((i*137-bgx*0.9)%span+span)%span-120,bh=stripH*(0.14+((i*53)%7)*0.028),bw=34+((i*29)%5)*9;
     g.fillStyle=i%2?'#c9785a':'#d7936e';g.fillRect(bx,stripH-bh,bw,bh);
     g.fillStyle='rgba(255,255,255,0.35)';
     for(var wy=stripH-bh+5;wy<stripH-6;wy+=9)g.fillRect(bx+5,wy,bw-10,3);
   }
-  if(VEH.cabin)drawCableScene();else{drawLandmarks(false);drawLandmarks(true);}
+  if(VEH.cabin)drawCableScene();else if(VEH.tram)drawStreetScene();else{drawLandmarks(false);drawLandmarks(true);}
   var px=null,si=st;
   if(phase==='aprox')px=(1-easeOut(pt/3.4))*W*1.25;
   else if(phase==='abierto'||phase==='resultado'||phase==='fin'||phase==='over')px=0;
@@ -857,7 +985,7 @@ function drawStrip(){
   for(i=1;i<=np;i++)g.fillRect(Math.round(i*W/(np+1))-3,0,6,stripH);
   g.fillStyle='#232e39';g.fillRect(0,stripH-5,W,5);g.fillRect(0,0,W,4);
   var label='';
-  var evs=ST[st].ev?' · ⚠ '+EVENTS[ST[st].ev].s:'',num=mode==='pico'?' · parada '+(st+1):'';
+  var evs=(ST[st].ev?' · ⚠ '+EVENTS[ST[st].ev].s:'')+(VEH.tram&&ST[st].loma?' · Loma':'')+(VEH.tram&&ST[st].fren?' · ⚠ Frenazo':''),num=mode==='pico'?' · parada '+(st+1):'';
   if(phase==='tramo')label='Próxima estación: '+ST[st].n+num+evs;
   else if(phase==='aprox')label='Llegando a '+ST[st].n+evs;
   else if(phase==='abierto')label=ST[st].n+' · puertas abiertas';
@@ -967,6 +1095,7 @@ function drawPiece(p,alpha,shift){
       g.lineWidth=2.5;g.strokeStyle='rgba(244,196,48,'+(0.4+0.35*Math.sin(time*6))+')';
       circ(cx,cy,B+3+Math.sin(time*6));g.stroke();
     }
+    if(VEH.tram&&isBarra(p.x,p.y)){g.lineWidth=2.5;g.strokeStyle='#f4c430';circ(cx,cy,B+1.5);g.stroke();}
     drawFigure(cx,cy,R,p,facing(p));
     if(exiting){
       var s=ST[st].side,a2=cell*0.11,ty=cy+s*(B+a2*0.2);
@@ -1027,10 +1156,32 @@ function drawCar(){
   g.strokeStyle='rgba(80,95,110,0.13)';g.lineWidth=1;
   for(var i=1;i<COLS;i++){g.beginPath();g.moveTo(ox+i*cell,oy);g.lineTo(ox+i*cell,oy+chh);g.stroke();}
   for(i=1;i<ROWS;i++){g.beginPath();g.moveTo(ox,oy+i*cell);g.lineTo(ox+cw,oy+i*cell);g.stroke();}
+  if(VEH.tram){
+    // fuelles: solo el pasillo central se puede cruzar
+    for(i=0;i<VEH.fuelles.length;i++){
+      var fx=ox+VEH.fuelles[i]*cell;
+      g.fillStyle='#4a5560';g.fillRect(fx,oy-band-cell*0.1,cell,band+cell*0.1+cell);g.fillRect(fx,oy+2*cell,cell,cell+band+cell*0.1);
+      g.fillStyle='#b9c2c9';g.fillRect(fx,oy+cell,cell,cell);
+      g.strokeStyle='rgba(60,70,80,0.45)';g.lineWidth=1;
+      for(var fz=1;fz<6;fz++){g.beginPath();g.moveTo(fx+cell*fz/6,oy+cell);g.lineTo(fx+cell*fz/6,oy+2*cell);g.stroke();}
+    }
+    // barras para agarrarse
+    for(i=0;i<VEH.barras.length;i++){
+      var bx=ox+(VEH.barras[i][0]+0.5)*cell,by=oy+(VEH.barras[i][1]+0.5)*cell;
+      circ(bx,by,cell*0.13);g.fillStyle='#f4c430';g.fill();g.lineWidth=2;g.strokeStyle='#8a6d10';g.stroke();
+    }
+    if(tramSliding>0&&phase==='tramo'){
+      g.globalAlpha=Math.min(1,tramSliding)*0.5;g.fillStyle='#b5462f';g.textAlign='center';g.textBaseline='middle';
+      g.font='800 '+Math.round(cell*0.5)+'px '+FONT;
+      for(i=1;i<COLS;i+=4)g.fillText('◀',ox+(i+0.5)*cell,oy+cell*1.5);
+      g.globalAlpha=1;
+    }
+  }
   // franjas de sillas (decorativas) y umbrales de puerta
   for(var x=0;x<COLS;x++){
     for(var c=0;c<2;c++){
       var X=ox+x*cell,Y=c?oy+chh:oy-band;
+      if(isFuelle(x))continue;
       if(!seatAt(x,c)){
         g.fillStyle='#eef0f2';g.fillRect(X,Y,cell,band);
         g.fillStyle='rgba(244,196,48,0.55)';g.fillRect(X,c?Y:Y+band-3,cell,3);
@@ -1172,10 +1323,12 @@ function satBar(x,y,w){
   if(sat>0){rr(x,y-bh/2,w*sat/100,bh,4);g.fillStyle=sat>50?'#44b874':(sat>25?'#e8a020':'#d8402f');g.fill();}
 }
 function drawToast(){
-  var show=(phase==='aprox'&&pt>1.2)||(phase==='abierto'&&pt<3.5);
+  var s=ST[st],fs=clamp(H/28,11,15),hh=fs+14,txt='';
+  var tramWarn=VEH.tram&&phase==='tramo'&&pt>0.6&&pt<4.4&&(s.loma||s.fren);
+  var show=(phase==='aprox'&&pt>1.2)||(phase==='abierto'&&pt<3.5)||tramWarn;
   if(!show||rules)return;
-  var s=ST[st],fs=clamp(H/28,11,15),hh=fs+14;
-  var txt=s.ev&&(phase==='aprox'||!s.hint)?'⚠ '+EVENTS[s.ev].t:s.hint;
+  if(tramWarn)txt=s.loma&&s.fren?'⚠ Loma y peatones en la vía: ¡agárrense de las barras!':(s.loma?'⚠ Loma de Ayacucho (12 %): quien no va en una barra se desliza':'⚠ Peatones en la vía: puede haber un frenazo');
+  else txt=s.ev&&(phase==='aprox'||!s.hint)?'⚠ '+EVENTS[s.ev].t:s.hint;
   if(!txt)return;
   g.font='600 '+fs+'px '+FONT;
   var tw=Math.min(W-24,g.measureText(txt).width+28);
@@ -1276,15 +1429,16 @@ function drawResult(){
 }
 function drawMenu(b){
   g.fillStyle='rgba(15,22,30,0.55)';g.fillRect(0,stripH,W,H-stripH);
-  var cw=Math.min(W-36,680),ch=Math.min(H-stripH-16,b*14.5),x=(W-cw)/2,y=stripH+(H-stripH-ch)/2;
+  var cw=Math.min(W-24,820),ch=Math.min(H-stripH-16,b*14.5),x=(W-cw)/2,y=stripH+(H-stripH-ch)/2;
   rr(x,y,cw,ch,16);g.fillStyle='#fff';g.fill();
   g.textAlign='center';g.textBaseline='middle';g.fillStyle='#1d2630';
   fitText('Próxima Estación',cw-28,b*1.6,'800');g.fillText('Próxima Estación',W/2,y+b*1.7);
   g.fillStyle='#5a6875';fitText('Elige cómo quieres jugar',cw-28,b*0.95,'500');g.fillText('Elige cómo quieres jugar',W/2,y+b*3.3);
-  var pad=12,bw=(cw-pad*4)/3,by=y+b*4.6,bh=y+ch-pad-by;
+  var pad=12,bw=(cw-pad*5)/4,by=y+b*4.6,bh=y+ch-pad-by;
   var rec=lsGet('pe_best_pico'),recSt=lsGet('pe_best_pico_st');
   var opts=[
     {m:'recorrido',c:'#1d6b45',l:['Recorrido','Niquía → Tricentenario','5 estaciones para aprender']},
+    {m:'tranvia',c:'#7a4f9a',l:['Tranvía','San Antonio → Oriente','Fuelles, loma y frenazos']},
     {m:'cable',c:'#2f6f9a',l:['Metrocable','Estación en U: Santo Domingo',lsGet('pe_best_cable')?'Récord: '+lsGet('pe_best_cable')+' pts':'Varias cabinas a la vez']},
     {m:'pico',c:'#b5462f',l:['Hora pico','Sin fin, cada vez más difícil',rec?'Récord: '+rec+' pts · '+recSt+(recSt===1?' parada':' paradas'):'Eventos sorpresa y rachas']}
   ];
@@ -1329,7 +1483,9 @@ function drawOverlay(){
 function draw(){
   if(mode==='cable'){drawU();return;}
   g.fillStyle='#232e39';g.fillRect(0,0,W,H);
-  drawStrip();drawCar();drawToast();drawResult();drawOverlay();drawHud();
+  drawStrip();
+  if(tramShake>0){tramShake-=1/60;g.save();g.translate((Math.random()-0.5)*8,0);drawCar();g.restore();}else drawCar();
+  drawToast();drawResult();drawOverlay();drawHud();
   if(rules)drawRules();
 }
 // ===================== Metrocable: estación terminal en U (Santo Domingo) =====================
@@ -1812,7 +1968,7 @@ function frame(ts){
   requestAnimationFrame(frame);
 }
 // ganchos para pruebas automáticas
-window.__game={geom:function(){return {ox:ox,oy:oy,cell:cell};},start:start,U:function(){return U;},__uStart:function(){uStartTurno();},uGeo:uGeo,cabPos:cabPos,uOrder:uOrder,uCellScreen:uCellScreen,genStation:genStation,mode:function(){return mode;},menu:function(){return menuBtns;},update:update,draw:draw,chainFor:chainFor,orderMove:orderMove,orderSit:orderSit,reach:reach,sel:function(){return sel;},trySit:trySit,stand:stand,seats:function(){return seats;},checkZone:checkZone,
+window.__game={geom:function(){return {ox:ox,oy:oy,cell:cell};},walkable:walkable,start:start,res:function(){return res;},U:function(){return U;},__uStart:function(){uStartTurno();},uGeo:uGeo,cabPos:cabPos,uOrder:uOrder,uCellScreen:uCellScreen,genStation:genStation,mode:function(){return mode;},menu:function(){return menuBtns;},update:update,draw:draw,chainFor:chainFor,orderMove:orderMove,orderSit:orderSit,reach:reach,sel:function(){return sel;},trySit:trySit,stand:stand,seats:function(){return seats;},checkZone:checkZone,
   rules:function(v){rules=v;},setSat:function(v){sat=v;},state:function(){return {ST:ST,streak:streak,phase:phase,st:st,pieces:pieces,score:score,sat:sat,queues:queues};}};
 requestAnimationFrame(frame);
 })();
